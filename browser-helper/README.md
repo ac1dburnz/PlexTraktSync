@@ -90,3 +90,23 @@ against the public API before replacing the previous token.
 The `browser-only` command is available for isolated validation or observation;
 it runs the same image and token monitoring but does not start sync. The normal
 default remains `watch`. See [VALIDATION.md](VALIDATION.md) for actual test results.
+
+## Ready-to-edit TrueNAS template
+
+Use [deploy/truenas.yml](../deploy/truenas.yml). It uses the AppyHoe dataset
+layout and one container. Set `PLEX_BASEURL`, `PLEX_TOKEN`, and optionally
+`SLACK_WEBHOOK_URL` privately in your deployment environment. If the TrueNAS YAML
+editor does not interpolate variables, replace those placeholders in the editor,
+not in Git. SIMKL and `PLEXYTRACK_*` settings belong to a different application
+and are not used here.
+
+Plex environment credentials initialize a new configuration. Existing
+`servers.yml` remains authoritative; dotenv overrides still apply to Plex
+credentials. Use your working Plex URL with a valid certificate hostname for
+HTTPS; a literal LAN IP may not match the certificate.
+
+Keep `TRAKT_BROWSER_HEADLESS: "false"` for first login. Tunnel host port 6080 to
+your Mac as described above. After signing in, change it to `"true"` and redeploy
+with the same two datasets. Stop the old sync container before launching this
+one to avoid duplicate sync workers. The image tag must be built/published
+before deploying the template.
