@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb x11vnc novnc websockify python3-venv && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN python -m venv /opt/pts-venv
+ENV PATH=/opt/pts-venv/bin:$PATH
+RUN pip install --no-cache-dir -r requirements.txt playwright==1.62.0
+COPY plextraktsync /app/plextraktsync
+COPY browser-helper /helper
+ARG APP_VERSION=browser-all-in-one
+RUN printf '__version__ = "%s"\n' "$APP_VERSION" > /app/plextraktsync/__init__.py
+ENV PYTHONUNBUFFERED=1 PTS_CONFIG_DIR=/app/config PTS_CACHE_DIR=/app/config PTS_LOG_DIR=/app/config PTS_IN_DOCKER=1 DISPLAY=:99 TRAKT_BROWSER_TOKEN_FILE=/app/config/browser-token.json
+ENTRYPOINT ["/bin/bash", "/helper/all-in-one.sh"]
+CMD ["watch"]
