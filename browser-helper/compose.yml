@@ -1,0 +1,18 @@
+services:
+  plextraktsync:
+    image: ghcr.io/ac1dburnz/plextraktsync:all-in-one
+    build:
+      context: ..
+      dockerfile: Dockerfile.all-in-one
+    init: true
+    restart: unless-stopped
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:6080:6080"
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TRAKT_BROWSER_HEADLESS: ${TRAKT_BROWSER_HEADLESS:-false}
+    volumes:
+      - "${PTS_CONFIG_PATH:?Set config dataset path}:/app/config"
+      - "${TRAKT_BROWSER_STATE:?Set browser dataset path}:/browser"
+    command: ["watch"]

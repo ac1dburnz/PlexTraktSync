@@ -1,0 +1,26 @@
+# One all-in-one container. Image is available after the publishing workflow runs.
+services:
+  plextraktsync:
+    container_name: plextraktsync
+    image: ghcr.io/ac1dburnz/plextraktsync:all-in-one
+    init: true
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      PTS_CONFIG_DIR: /app/config
+      PTS_CACHE_DIR: /app/config
+      PTS_LOG_DIR: /app/config
+      TRAKT_BROWSER_TOKEN_FILE: /app/config/browser-token.json
+      # false for first email/PIN login; true for subsequent headless operation.
+      TRAKT_BROWSER_HEADLESS: "false"
+      PLEX_BASEURL: "${PLEX_BASEURL:?Set your working Plex server URL}"
+      PLEX_TOKEN: "${PLEX_TOKEN:?Set your Plex token privately}"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      TZ: Europe/London
+    ports:
+      # No UI password: keep localhost binding and access through SSH.
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - /mnt/AppyHoe/apps/plextraktsync/config:/app/config
+      - /mnt/AppyHoe/apps/plextraktsync/browser:/browser
+    command: ["watch"]

@@ -1,0 +1,59 @@
+name: All-in-one PlexTraktSync image
+on:
+  push:
+    branches: [main]
+    paths: ['browser-helper/**', 'plextraktsync/**', 'requirements.txt', 'Dockerfile.all-in-one', '.github/workflows/browser-image.yml']
+  pull_request:
+    paths: ['browser-helper/**', 'plextraktsync/**', 'requirements.txt', 'Dockerfile.all-in-one', '.github/workflows/browser-image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: browser-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4.6.0
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ghcr.io/ac1dburnz/plextraktsync
+          tags: |
+            type=sha,prefix=all-in-one-
+            type=raw,value=all-in-one,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch,prefix=all-in-one-
+            type=ref,event=pr,prefix=all-in-one-
+      - name: Build local test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.all-in-one
+          load: true
+          tags: plextraktsync:all-in-one-test
+          cache-from: type=gha,scope=browser-helper
+          cache-to: type=gha,scope=browser-helper,mode=max
+      - name: Test application and headless browser
+        run: |
+          docker run --rm --network none plextraktsync:all-in-one-test test
+          docker run --rm --network none --entrypoint python plextraktsync:all-in-one-test -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.set_content("<title>browser-ok</title>"); assert page.title()=="browser-ok"; b.close(); p.stop()'
+      - name: Publish tested image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.all-in-one
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=browser-helper
+          cache-to: type=gha,scope=browser-helper,mode=max

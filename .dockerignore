@@ -6,3 +6,8 @@
 !/plextraktsync.sh
 !/plextraktsync/
 !/requirements.txt
+
+!/browser-helper/
+
+**/__pycache__/
+**/*.pyc
