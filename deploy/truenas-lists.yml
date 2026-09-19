@@ -1,0 +1,28 @@
+networks:
+  docker_network_self:
+    external: true
+services:
+  plextraktsync:
+    image: ghcr.io/ac1dburnz/plextraktsync:all-in-one
+    command: watch
+    init: true
+    shm_size: 1gb
+    restart: always
+    environment:
+      TZ: Europe/London
+      TRAKT_BROWSER_HEADLESS: "true"
+      TRAKT_BROWSER_TOKEN_FILE: /app/config/browser-token.json
+      LIST_BRIDGE_ENABLED: "true"
+      LIST_BRIDGE_SECRET: "REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_24_CHARACTERS"
+      LIST_BRIDGE_CACHE_SECONDS: "3600"
+      SLACK_WEBHOOK_URL: ""
+    networks:
+      docker_network_self:
+        ipv4_address: 192.168.2.98
+    ports:
+      - "8090:8090"
+      # For interactive login, set TRAKT_BROWSER_HEADLESS=false and enable:
+      # - "6080:6080"
+    volumes:
+      - /mnt/AppyHoe/jailmaker/jails/sabnzbd/rootfs/root/.local/pipx/venvs/plextraktsync/lib/python3.11/site-packages/plextraktsync/config:/app/config
+      - /mnt/AppyHoe/apps/plextraktsync/browser:/browser
