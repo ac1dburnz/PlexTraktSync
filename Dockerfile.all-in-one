@@ -4,7 +4,8 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN python -m venv /opt/pts-venv
 ENV PATH=/opt/pts-venv/bin:$PATH
-RUN pip install --no-cache-dir -r requirements.txt playwright==1.62.0
+COPY browser-helper/requirements-lists.txt /app/requirements-lists.txt
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-lists.txt playwright==1.62.0
 COPY plextraktsync /app/plextraktsync
 COPY browser-helper /helper
 ARG APP_VERSION=browser-all-in-one

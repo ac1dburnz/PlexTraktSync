@@ -110,3 +110,7 @@ your Mac as described above. After signing in, change it to `"true"` and redeplo
 with the same two datasets. Stop the old sync container before launching this
 one to avoid duplicate sync workers. The image tag must be built/published
 before deploying the template.
+
+## Radarr / Sonarr saved feeds
+
+The optional built-in [Trakt list bridge](LIST-BRIDGE.md) exposes movie and TV feeds using the same browser login. It includes a feed-builder page on port 8090, previews, persisted source settings, and importer URLs. See the [TrueNAS template](../deploy/truenas-lists.yml).
