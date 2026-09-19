@@ -1,2 +1,4 @@
 -r ../requirements.txt
 pytest
+
+-r ../browser-helper/requirements-lists.txt

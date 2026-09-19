@@ -46,6 +46,9 @@ jobs:
         run: |
           docker run --rm --network none plextraktsync:all-in-one-test test
           docker run --rm --network none --entrypoint python plextraktsync:all-in-one-test -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.set_content("<title>browser-ok</title>"); assert page.title()=="browser-ok"; b.close(); p.stop()'
+      - name: Test list bridge UI and importer URLs offline
+        run: |
+          docker run --rm --network none --entrypoint python -e PYTHONPATH=/app:/helper plextraktsync:all-in-one-test /helper/smoke_list_bridge.py
       - name: Publish tested image
         uses: docker/build-push-action@v7
         with:
