@@ -24,3 +24,6 @@ __pycache__/
 .browser-venv/
 .plextraktsync-browser/
 trakt-browser-token.json
+
+# Local list-bridge test environment
+.list-venv/
