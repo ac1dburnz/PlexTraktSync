@@ -403,3 +403,13 @@ def test_network_catalog_rejects_partial_results(token):
     client = bridge.TraktFeeds(token, get=lambda *a, **kw: reply([{'name': 'ABC'}], headers={'X-Pagination-Page-Count': '11'}))
     with pytest.raises(bridge.BridgeError, match='no partial catalog'):
         client.browse('networks')
+
+
+def test_poster_endpoint_authenticated_and_does_not_expose_keys(tmp_path, token):
+    from plextraktsync.trakt.PosterLookup import PosterLookup
+    posters = PosterLookup(get=lambda *a, **kw: reply({'poster_path': '/poster.jpg'}), env={'TMDB_API_KEY': 'never-output'})
+    client = bridge.create_app(tmp_path, token, SECRET, posters=posters).test_client()
+    assert client.get('/api/poster/movies/1').status_code == 403
+    result = client.get('/api/poster/movies/1', headers={'X-Bridge-Key': SECRET})
+    assert result.json == {'poster': 'https://image.tmdb.org/t/p/w500/poster.jpg'}
+    assert 'never-output' not in result.text
