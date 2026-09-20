@@ -190,7 +190,7 @@ class TraktFeeds:
     def browse(self, kind, user="me", query="", page=1, media="shows"):
         if not isinstance(user, str) or not SLUG.fullmatch(user) or media not in ("movies", "shows"):
             raise BridgeError("Invalid browse user or media.", 400)
-        if type(page) is not int or not 1 <= page <= 100 or len(query) > 160:
+        if type(page) is not int or not 1 <= page <= 1000 or len(query) > 160:
             raise BridgeError("Invalid browse query or page.", 400)
         paths = {
             "networks": "/networks",
@@ -215,6 +215,32 @@ class TraktFeeds:
             cached = self.cache.get(key)
             if cached and self.clock() - cached[0] < self.ttl:
                 return cached[1]
+            if kind == "networks":
+                catalog_key = ("network_catalog", self.fingerprint())
+                catalog = self.cache.get(catalog_key)
+                if catalog and self.clock() - catalog[0] < self.ttl:
+                    networks = catalog[1]
+                else:
+                    networks = []
+                    deadline = self.clock() + 60
+                    current, total = 1, 1
+                    while current <= total:
+                        batch, total = self.request("/networks", {"page": current, "limit": 1000}, deadline)
+                        if not isinstance(batch, list) or total > 10:
+                            raise BridgeError("Network catalog is too large or malformed; no partial catalog was returned.")
+                        for entry in batch:
+                            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                                raise BridgeError("Trakt returned malformed network metadata.")
+                            name = entry["name"].strip()
+                            if name:
+                                networks.append({"name": name, **({"country": entry["country"]} if isinstance(entry.get("country"), str) else {})})
+                        current += 1
+                    networks.sort(key=lambda entry: entry["name"].casefold())
+                    if len(self.cache) >= 100:
+                        self.cache.clear()
+                    self.cache[catalog_key] = (self.clock(), networks)
+                matches = [entry for entry in networks if query.strip().casefold() in entry["name"].casefold()]
+                return {"items": matches[(page - 1) * 20:page * 20], "page": page, "pages": max(1, (len(matches) + 19) // 20), "total": len(matches)}
             data, pages = self.request(paths[kind], {"page": page, "limit": 20, **({"query": query} if query else {})}, self.clock() + 30)
             if not isinstance(data, list):
                 # Certifications are grouped by country.
