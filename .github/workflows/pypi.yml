@@ -8,15 +8,13 @@ on:
   workflow_dispatch: ~
   release:
     types: [published]
-  push:
-    tags:
-      - "*.*.*"
 
 env:
   DEFAULT_PYTHON: "3.10"
 
 jobs:
   pypi:
+    if: github.repository == 'Taxel/PlexTraktSync'
     name: Publish to PyPI
     runs-on: ubuntu-latest
     environment:
