@@ -7,13 +7,13 @@ name: Publish Docker image
 
 on:
   workflow_call:
-    secrets:
-      github-token:
+    inputs:
+      version:
         required: true
-      docker-username:
-        required: false
-      docker-password:
-        required: false
+        type: string
+      publish:
+        required: true
+        type: boolean
 
 env:
   REGISTRY: ghcr.io
@@ -37,25 +37,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Set version variable
-        id: vars
-        run: |
-          echo "version=git-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
-
       - name: Log in to the Container registry
-        if: github.event_name != 'pull_request'
+        if: inputs.publish
         uses: docker/login-action@v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.github-token }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && vars.PUBLISH_DOCKERHUB == 'true'
+        if: inputs.publish && vars.PUBLISH_DOCKERHUB == 'true'
         uses: docker/login-action@v4.6.0
         with:
-          username: ${{ secrets.docker-username }}
-          password: ${{ secrets.docker-password }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -65,18 +60,14 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
             name=ac1dburn/plextraktsync,enable=${{ vars.PUBLISH_DOCKERHUB == 'true' }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/0.') }}
+            type=raw,value=${{ inputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ inputs.version }}
 
       - name: Build and export to Docker
         uses: docker/build-push-action@v7
         env:
-          APP_VERSION: ${{ steps.vars.outputs.version }}
+          APP_VERSION: ${{ inputs.version }}
         with:
           context: .
           load: true
@@ -90,14 +81,14 @@ jobs:
         run: |
           docker run --network none -e TRACE=1 --rm ${{ env.TEST_IMAGE }} test
 
-      - name: Build and push Docker image
+      - name: Build all supported platforms
         uses: docker/build-push-action@v7
         env:
-          APP_VERSION: ${{ steps.vars.outputs.version }}
+          APP_VERSION: ${{ inputs.version }}
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ inputs.publish }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

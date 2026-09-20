@@ -8,15 +8,13 @@ on:
   workflow_dispatch: ~
   release:
     types: [published]
-  push:
-    tags:
-      - "*.*.*"
 
 env:
   DEFAULT_PYTHON: "3.10"
 
 jobs:
   pypi:
+    if: github.repository == 'Taxel/PlexTraktSync'
     name: Publish to PyPI
     runs-on: ubuntu-latest
     environment:
@@ -37,7 +35,7 @@ jobs:
             subver=${{ github.run_number }}
             APP_VERSION=$version.post$subver
           fi
-          echo "version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v7
