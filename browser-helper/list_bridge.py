@@ -1,13 +1,14 @@
 """Saved Trakt feeds for Radarr and Sonarr; read-only access to Trakt."""
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 import json
 import os
-import re
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,133 +17,41 @@ from click import ClickException
 from flask import Flask, jsonify, request, send_file
 
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
-
-PERIODS = ['daily', 'weekly', 'monthly', 'yearly', 'all']
-FILTERS = ['years', 'genres', 'languages', 'countries', 'ratings', 'certifications', 'runtimes']
-SOURCES = {
-    'favorited': {'label': 'Most favorited by period (current Trakt API)', 'period': True, 'filters': True},
-    'recommended': {'label': 'Recommended by period (legacy Trakt endpoint)', 'period': True, 'filters': True},
-    'recommendations': {'label': 'Personal recommendations', 'recommendations': True, 'filters': True},
-    'social_recommendations': {'label': 'Social recommendations', 'recommendations': True},
-    'trending': {'label': 'Trending', 'filters': True},
-    'popular': {'label': 'Popular', 'filters': True},
-    'anticipated': {'label': 'Anticipated', 'filters': True},
-    'watched': {'label': 'Most watched by period', 'period': True, 'filters': True},
-    'played': {'label': 'Most played by period', 'period': True, 'filters': True},
-    'collected': {'label': 'Most collected by period', 'period': True, 'filters': True},
-    'boxoffice': {'label': 'Box office (movies only)', 'movies_only': True},
-    'watchlist': {'label': 'User watchlist', 'user': True},
-    'user_watched': {'label': 'User watched titles', 'user': True},
-    'collection': {'label': 'User collection', 'user': True},
-    'list': {'label': 'Named Trakt list', 'user': True, 'list': True},
-    'related': {'label': 'Related to a movie or show', 'seed': True},
-}
-SLUG = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$')
-
-
-class BridgeError(Exception):
-    def __init__(self, message, status=502):
-        self.message, self.status = message, status
-
-
-def validate_feed(raw):
-    if not isinstance(raw, dict):
-        raise BridgeError('Feed must be an object.', 400)
-    allowed = {'name', 'media', 'source', 'period', 'limit', 'user', 'list', 'seed', 'filters',
-               'ignore_collected', 'ignore_watchlisted', 'watch_window'}
-    if set(raw) - allowed:
-        raise BridgeError('Unknown feed option.', 400)
-    feed = dict(raw)
-    for field in ('name', 'media', 'source'):
-        if not isinstance(feed.get(field), str):
-            raise BridgeError(f'Missing {field}.', 400)
-    if not SLUG.fullmatch(feed['name']) or feed['media'] not in ('movies', 'shows') or feed['source'] not in SOURCES:
-        raise BridgeError('Invalid name, media type or source.', 400)
-    spec = SOURCES[feed['source']]
-    if spec.get('movies_only') and feed['media'] != 'movies':
-        raise BridgeError('This source supports movies only.', 400)
-    limit = feed.setdefault('limit', 100)
-    if type(limit) is not int or not 1 <= limit <= 1000:
-        raise BridgeError('Limit must be an integer from 1 to 1000.', 400)
-    if spec.get('recommendations') and limit > 100:
-        raise BridgeError('Recommendation feeds support at most 100 results.', 400)
-    if spec.get('period'):
-        feed.setdefault('period', 'weekly')
-        if feed['period'] not in PERIODS:
-            raise BridgeError('Invalid period.', 400)
-    elif 'period' in feed:
-        raise BridgeError('Period is not supported for this source.', 400)
-    for field in ('user', 'list', 'seed'):
-        if spec.get(field):
-            if field == 'user':
-                feed.setdefault(field, 'me')
-            value = feed.get(field)
-            if not isinstance(value, str) or not SLUG.fullmatch(value):
-                raise BridgeError(f'Invalid {field}. Use its Trakt URL slug or numeric ID.', 400)
-        elif field in feed:
-            raise BridgeError(f'{field} is not supported for this source.', 400)
-    filters = feed.setdefault('filters', {})
-    if not isinstance(filters, dict) or set(filters) - set(FILTERS) or (filters and not spec.get('filters')):
-        raise BridgeError('Unsupported filters for this source.', 400)
-    for value in filters.values():
-        if not isinstance(value, str) or len(value) > 160 or not re.fullmatch(r'[a-zA-Z0-9, ._-]+', value):
-            raise BridgeError('Invalid filter value.', 400)
-    for field in ('ignore_collected', 'ignore_watchlisted', 'watch_window'):
-        if field in feed:
-            if not spec.get('recommendations'):
-                raise BridgeError(f'{field} is only supported for recommendation feeds.', 400)
-            value = feed[field]
-            if field == 'watch_window':
-                if type(value) is not int or not 1 <= value <= 3650:
-                    raise BridgeError('Watch window must be 1–3650 days.', 400)
-            elif type(value) is not bool:
-                raise BridgeError(f'{field} must be a boolean.', 400)
-    return feed
-
-
-def upstream(feed):
-    source, media = feed['source'], feed['media']
-    params = dict(feed['filters'])
-    if source in ('recommendations', 'social_recommendations'):
-        path = f'/{source}/{media}'
-        for key in ('ignore_collected', 'ignore_watchlisted', 'watch_window'):
-            if key in feed:
-                params[key] = str(feed[key]).lower()
-    elif SOURCES[source].get('period'):
-        path = f'/{media}/{source}/{feed["period"]}'
-    elif SOURCES[source].get('user'):
-        user = quote(feed['user'], safe='')
-        if source == 'list':
-            path = f'/users/{user}/lists/{quote(feed["list"], safe="")}/items/{media}'
-        else:
-            path = f'/users/{user}/{"watched" if source == "user_watched" else source}/{media}'
-    elif source == 'related':
-        path = f'/{media}/{quote(feed["seed"], safe="")}/related'
-    else:
-        path = f'/{media}/{source}'
-    return path, params
+from plextraktsync.trakt.ListSources import (
+    FILTERS,
+    OPTIONS,
+    PERIODS,
+    SLUG,
+    SOURCES,
+    WATCHNOW,
+    BridgeError,
+    normalize,
+    requests_for,
+    select_items,
+    validate_feed,
+)
 
 
 def convert(items, media):
     out, seen = [], set()
-    kind, id_key = ('movie', 'tmdb') if media == 'movies' else ('show', 'tvdb')
+    kind, id_key = ("movie", "tmdb") if media == "movies" else ("show", "tvdb")
     for entry in items:
         if not isinstance(entry, dict):
-            raise BridgeError('Trakt returned malformed list data.')
+            raise BridgeError("Trakt returned malformed list data.")
         item = entry.get(kind, entry)
         if not isinstance(item, dict):
-            raise BridgeError('Trakt returned malformed title data.')
-        ids = item.get('ids') or {}
+            raise BridgeError("Trakt returned malformed title data.")
+        ids = item.get("ids") or {}
         if not isinstance(ids, dict):
-            raise BridgeError('Trakt returned malformed identifiers.')
+            raise BridgeError("Trakt returned malformed identifiers.")
         identifier = ids.get(id_key)
         if type(identifier) is not int or identifier <= 0 or identifier in seen:
             continue
         seen.add(identifier)
-        title = item.get('title')
+        title = item.get("title")
         if not isinstance(title, str):
             title = str(identifier)
-        out.append({'id': identifier, 'title': title} if media == 'movies' else {'tvdbId': identifier, 'title': title})
+        out.append({"id": identifier, "title": title} if media == "movies" else {"tvdbId": identifier, "title": title})
     return out
 
 
@@ -159,29 +68,29 @@ class FeedStore:
                 data = json.loads(self.path.read_text())
                 if not isinstance(data, dict):
                     raise TypeError()
-                if any(not isinstance(feed, dict) or name != feed.get('name') for name, feed in data.items()):
+                if any(not isinstance(feed, dict) or name != feed.get("name") for name, feed in data.items()):
                     raise ValueError()
                 return {name: validate_feed(feed) for name, feed in data.items()}
             except (ValueError, TypeError, OSError, AttributeError, BridgeError):
-                raise BridgeError('Saved feeds cannot be read. Check the configuration file.', 503) from None
+                raise BridgeError("Saved feeds cannot be read. Check the configuration file.", 503) from None
 
     def save(self, feed):
         with self.lock:
             data = self.read()
-            data[feed['name']] = feed
+            data[feed["name"]] = feed
             if len(data) > 100:
-                raise BridgeError('At most 100 saved feeds are supported.', 400)
+                raise BridgeError("At most 100 saved feeds are supported.", 400)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix('.tmp')
+            tmp = self.path.with_suffix(".tmp")
             try:
-                with tmp.open('w') as handle:
+                with tmp.open("w") as handle:
                     os.chmod(tmp, 0o600)
                     json.dump(data, handle, indent=2)
                     handle.flush()
                     os.fsync(handle.fileno())
                 tmp.replace(self.path)
             except OSError:
-                raise BridgeError('Could not save feeds.', 503) from None
+                raise BridgeError("Could not save feeds.", 503) from None
 
 
 class TraktFeeds:
@@ -192,62 +101,151 @@ class TraktFeeds:
         self.cache = {}
         self.retry_at = 0
 
+    def fingerprint(self):
+        try:
+            token = self.auth.read()
+        except ClickException:
+            raise BridgeError("Trakt login required. Check browser authentication and Slack status.", 503) from None
+        return hashlib.sha256((token["access_token"] + ":" + token["client_id"]).encode()).hexdigest()
+
+    def request(self, path, params, deadline):
+        if self.clock() < self.retry_at:
+            raise BridgeError("Trakt rate limit reached. Please retry later.", 503)
+        remaining = deadline - self.clock()
+        if remaining <= 0:
+            raise BridgeError("Trakt fetch timed out. No partial list was published.", 503)
+        try:
+            response = self.get(
+                "https://api.trakt.tv" + path,
+                params=params,
+                auth=self.auth,
+                headers={"trakt-api-version": "2", "User-Agent": "PlexTraktSync", "Accept": "application/json"},
+                timeout=min(15, remaining),
+                allow_redirects=False,
+            )
+            if response.status_code == 429:
+                try:
+                    wait = max(1, min(3600, int(response.headers.get("Retry-After", "60"))))
+                except ValueError:
+                    wait = 60
+                self.retry_at = self.clock() + wait
+                raise BridgeError("Trakt rate limit reached. Please retry later.", 503)
+            if response.status_code != 200:
+                hint = " Legacy Recommended may be unavailable; Most favorited is a separate source." if "/recommended/" in path else ""
+                raise BridgeError(f"Trakt returned HTTP {response.status_code}.{hint}")
+            data = response.json()
+            pages = int(response.headers.get("X-Pagination-Page-Count", "1"))
+            pages = max(pages, 1)  # Some empty responses advertise zero pages.
+            if self.clock() >= deadline:
+                raise BridgeError("Trakt fetch timed out. No partial list was published.", 503)
+            return data, pages
+        except ClickException:
+            raise BridgeError("Trakt authentication failed or redirected. Check browser authentication.", 503) from None
+        except (requests.RequestException, ValueError, TypeError):
+            raise BridgeError("Could not fetch valid Trakt data. No partial list was published.", 502) from None
+
     def fetch(self, feed):
-        # Lock coalesces requests and bounds upstream concurrency across feeds.
+        feed = validate_feed(feed)
         with self.lock:
-            try:
-                token = self.auth.read()
-            except ClickException:
-                raise BridgeError('Trakt login required. Check browser authentication and Slack status.', 503) from None
-            fingerprint = hashlib.sha256((token['access_token'] + ':' + token['client_id']).encode()).hexdigest()
-            key = (fingerprint, json.dumps(feed, sort_keys=True))
+            today = datetime.now(timezone.utc).date()
+            # Date included so rolling windows cannot return yesterday's cached scope.
+            key = (self.fingerprint(), today.isoformat(), json.dumps(feed, sort_keys=True))
             now = self.clock()
             cached = self.cache.get(key)
             if cached and now - cached[0] < self.ttl:
                 return cached[1]
-            if now < self.retry_at:
-                raise BridgeError('Trakt rate limit reached. Please retry later.', 503)
-            path, params = upstream(feed)
-            params['limit'] = min(feed['limit'], 100)
+            spec = SOURCES[feed["source"]]
             items = []
             deadline = now + 60
-            for page in range(1, 11):
-                if self.clock() >= deadline:
-                    raise BridgeError('Trakt list fetch timed out. No partial list was published.', 503)
-                params['page'] = page
-                try:
-                    response = self.get('https://api.trakt.tv' + path, params=dict(params), auth=self.auth,
-                                        headers={'trakt-api-version': '2', 'User-Agent': 'PlexTraktSync', 'Accept': 'application/json'},
-                                        timeout=15, allow_redirects=False)
-                    if response.status_code == 429:
-                        try:
-                            wait = max(1, min(3600, int(response.headers.get('Retry-After', '60'))))
-                        except ValueError:
-                            wait = 60
-                        self.retry_at = self.clock() + wait
-                        raise BridgeError('Trakt rate limit reached. Please retry later.', 503)
-                    if response.status_code != 200:
-                        hint = ''
-                        if feed['source'] == 'recommended':
-                            hint = ' Try the separate Most favorited source; the legacy endpoint may be unavailable.'
-                        raise BridgeError(f'Trakt returned HTTP {response.status_code}.{hint}')
-                    data = response.json()
-                    if not isinstance(data, list):
-                        raise BridgeError('Trakt did not return a list.')
-                    items.extend(data)
-                    result = convert(items, feed['media'])
-                    pages = int(response.headers.get('X-Pagination-Page-Count', '1'))
-                except ClickException:
-                    raise BridgeError('Trakt authentication failed or redirected. Check browser authentication.', 503) from None
-                except (requests.RequestException, ValueError, TypeError):
-                    raise BridgeError('Could not fetch valid Trakt data. No partial list was published.', 502) from None
-                if len(result) >= feed['limit'] or page >= pages or not data:
-                    break
-            else:
-                raise BridgeError('Trakt pagination exceeded the 10-page limit. Reduce the feed scope.', 502)
-            if items and not result:
-                raise BridgeError('No usable TMDB/TVDB identifiers were returned; refusing to publish an empty feed.')
-            result = result[:feed['limit']]
+            exhaustive = spec.get("calendar") or feed.get("order", "upstream") != "upstream"
+            calls = 0
+            for path, params in requests_for(feed, today):
+                for page in range(1, 11):
+                    if calls >= 10:
+                        raise BridgeError("Trakt fetch exceeded 10 requests. Narrow the window or filters; no partial list was published.")
+                    calls += 1
+                    # Fetch full pages before local network filtering, deduplication or sorting.
+                    data, pages = self.request(path, {**params, "limit": 100, "page": page}, deadline)
+                    batch = normalize(data, feed)
+                    items.extend(batch)
+                    result = convert(select_items(items, feed), feed["media"])
+                    if spec.get("single") or page >= pages:
+                        break
+                    if not exhaustive and len(result) >= feed["limit"]:
+                        break
+                    if not data:
+                        raise BridgeError("Trakt ended pagination unexpectedly; no partial list was published.")
+                else:
+                    raise BridgeError("Trakt pagination exceeded 10 pages. Narrow the feed scope; no partial list was published.")
+            if items and not convert(items, feed["media"]):
+                raise BridgeError("No usable TMDB/TVDB identifiers were returned; refusing to publish an empty feed.")
+            result = convert(select_items(items, feed), feed["media"])[: feed["limit"]]
+            if len(self.cache) >= 100:
+                self.cache.clear()
+            self.cache[key] = (self.clock(), result)
+            return result
+
+    def browse(self, kind, user="me", query="", page=1, media="shows"):
+        if not isinstance(user, str) or not SLUG.fullmatch(user) or media not in ("movies", "shows"):
+            raise BridgeError("Invalid browse user or media.", 400)
+        if type(page) is not int or not 1 <= page <= 100 or len(query) > 160:
+            raise BridgeError("Invalid browse query or page.", 400)
+        paths = {
+            "networks": "/networks",
+            "genres": f"/genres/{media}",
+            "languages": f"/languages/{media}",
+            "countries": f"/countries/{media}",
+            "certifications": f"/certifications/{media}",
+            "my_lists": f"/users/{quote(user, safe='')}/lists",
+            "smart_lists": f"/users/{quote(user, safe='')}/smart-lists",
+            "liked_lists": "/users/likes/lists",
+            "popular_lists": "/lists/popular",
+            "trending_lists": "/lists/trending",
+            "search_lists": "/search/list",
+            "people": "/search/person",
+        }
+        if kind not in paths:
+            raise BridgeError("Unknown discovery type.", 400)
+        if kind in ("search_lists", "people") and not query.strip():
+            raise BridgeError("Enter search text.", 400)
+        with self.lock:
+            key = ("browse", self.fingerprint(), kind, user, query, page, media)
+            cached = self.cache.get(key)
+            if cached and self.clock() - cached[0] < self.ttl:
+                return cached[1]
+            data, pages = self.request(paths[kind], {"page": page, "limit": 20, **({"query": query} if query else {})}, self.clock() + 30)
+            if not isinstance(data, list):
+                # Certifications are grouped by country.
+                if kind == "certifications" and isinstance(data, dict) and all(isinstance(v, list) for v in data.values()):
+                    data = [dict(entry, country=country) for country, entries in data.items() for entry in entries if isinstance(entry, dict)]
+                else:
+                    raise BridgeError("Trakt returned malformed discovery results.")
+            out = []
+            for entry in data:
+                if not isinstance(entry, dict):
+                    raise BridgeError("Trakt returned malformed discovery results.")
+                item = entry.get("list") or entry.get("person") or entry
+                if not isinstance(item, dict):
+                    raise BridgeError("Trakt returned malformed discovery results.")
+                ids = item.get("ids") or {}
+                if not isinstance(ids, dict):
+                    raise BridgeError("Trakt returned malformed discovery identifiers.")
+                # Return only display metadata needed to select a feed, not full profiles.
+                out.append(
+                    {
+                        k: v
+                        for k, v in {
+                            "name": item.get("name"),
+                            "id": ids.get("trakt"),
+                            "slug": ids.get("slug") or item.get("slug"),
+                            "code": item.get("code"),
+                            "country": item.get("country"),
+                            "media_type": item.get("media_type"),
+                        }.items()
+                        if isinstance(v, (str, int)) and not isinstance(v, bool)
+                    }
+                )
+            result = {"items": out, "page": page, "pages": pages}
             if len(self.cache) >= 100:
                 self.cache.clear()
             self.cache[key] = (self.clock(), result)
@@ -256,31 +254,30 @@ class TraktFeeds:
 
 def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600):
     if not secret or len(secret) < 24 or not secret.isascii():
-        raise ValueError('LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.')
+        raise ValueError("LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.")
     app = Flask(__name__)
-    app.config['MAX_CONTENT_LENGTH'] = 16384
-    store = FeedStore(Path(config_dir) / 'list-feeds.json')
+    app.config["MAX_CONTENT_LENGTH"] = 16384
+    store = FeedStore(Path(config_dir) / "list-feeds.json")
     client = TraktFeeds(token_file, get=get, ttl=ttl)
 
     @app.before_request
     def authenticate():
-        if request.path in ('/', '/healthz'):
+        if request.path in ("/", "/healthz"):
             return
-        supplied = request.headers.get('X-Bridge-Key', '')
-        if request.method == 'GET' and not supplied:
-            supplied = request.args.get('key', '')
+        supplied = request.headers.get("X-Bridge-Key", "")
+        if request.method == "GET" and not supplied:
+            supplied = request.args.get("key", "")
         if not hmac.compare_digest(supplied.encode(), secret.encode()):
-            raise BridgeError('Invalid bridge key.', 403)
+            raise BridgeError("Invalid bridge key.", 403)
 
     @app.after_request
     def headers(response):
-        response.headers['Cache-Control'] = 'no-store'
-        response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
         )
         return response
 
@@ -288,50 +285,65 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600):
     def error(exc):
         return jsonify(error=exc.message), exc.status
 
-    @app.get('/')
+    @app.get("/")
     def index():
-        return send_file(Path(__file__).with_name('list_bridge.html'))
+        return send_file(Path(__file__).with_name("list_bridge.html"))
 
-    @app.get('/healthz')
+    @app.get("/healthz")
     def health():
-        return jsonify(ok=True, service='list-bridge')
+        return jsonify(ok=True, service="list-bridge")
 
-    @app.get('/api/catalog')
+    @app.get("/api/catalog")
     def catalog():
-        return jsonify(sources=SOURCES, periods=PERIODS, filters=FILTERS)
+        return jsonify(sources=SOURCES, options=OPTIONS, periods=PERIODS, filters=FILTERS, watchnow=WATCHNOW)
 
-    @app.get('/api/feeds')
+    @app.get("/api/browse")
+    def browse():
+        try:
+            page = int(request.args.get("page", "1"))
+        except ValueError:
+            raise BridgeError("Invalid browse page.", 400) from None
+        return jsonify(
+            client.browse(
+                request.args.get("kind", ""), request.args.get("user", "me"), request.args.get("query", ""), page, request.args.get("media", "shows")
+            )
+        )
+
+    @app.get("/api/feeds")
     def feeds():
         return jsonify(store.read())
 
-    @app.post('/api/feeds')
+    @app.post("/api/feeds")
     def save():
         feed = validate_feed(request.get_json(silent=True))
         store.save(feed)
         return jsonify(feed), 201
 
-    @app.post('/api/preview')
+    @app.post("/api/preview")
     def preview():
         feed = validate_feed(request.get_json(silent=True))
         return jsonify(client.fetch(feed))
 
-    @app.get('/<target>/<name>.json')
+    @app.get("/<target>/<name>.json")
     def output(target, name):
-        if target not in ('radarr', 'sonarr'):
-            raise BridgeError('Unknown importer.', 404)
+        if target not in ("radarr", "sonarr"):
+            raise BridgeError("Unknown importer.", 404)
         feed = store.read().get(name)
-        if not feed or feed['media'] != ('movies' if target == 'radarr' else 'shows'):
-            raise BridgeError('Feed not found for this importer.', 404)
+        if not feed or feed["media"] != ("movies" if target == "radarr" else "shows"):
+            raise BridgeError("Feed not found for this importer.", 404)
         return jsonify(client.fetch(feed))
 
     return app
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from waitress import serve
 
-    app = create_app(os.environ.get('PTS_CONFIG_DIR', '/app/config'),
-                     os.environ.get('TRAKT_BROWSER_TOKEN_FILE', '/app/config/browser-token.json'),
-                     os.environ.get('LIST_BRIDGE_SECRET', ''), ttl=int(os.environ.get('LIST_BRIDGE_CACHE_SECONDS', '3600')))
+    app = create_app(
+        os.environ.get("PTS_CONFIG_DIR", "/app/config"),
+        os.environ.get("TRAKT_BROWSER_TOKEN_FILE", "/app/config/browser-token.json"),
+        os.environ.get("LIST_BRIDGE_SECRET", ""),
+        ttl=int(os.environ.get("LIST_BRIDGE_CACHE_SECONDS", "3600")),
+    )
     # Waitress does not emit request access logs containing the feed query secret.
-    serve(app, host='0.0.0.0', port=int(os.environ.get('LIST_BRIDGE_PORT', '8090')), threads=4)
+    serve(app, host="0.0.0.0", port=int(os.environ.get("LIST_BRIDGE_PORT", "8090")), threads=4)

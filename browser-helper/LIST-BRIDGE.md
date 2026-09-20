@@ -37,6 +37,11 @@ Feed definitions persist in `/app/config/list-feeds.json`. Selecting a saved fee
 
 ## Sources and the “Recommended by” distinction
 
+The expanded builder groups **45 feed types** and provides list/person discovery, rolling release calendars, network selection and output sorting. See [the API coverage audit](TRAKT-API-COVERAGE.md) for all sources, limitations and live verification.
+
+For Netflix premieres, click **Preset: Netflix new series**, preview, then save. It selects the Netflix network, a rolling 60-day UTC window starting 30 days ago, and newest-first order. Network metadata is not country-specific streaming availability. The discovery panel can find user/public/smart lists and people; click **Use** to populate the source fields. Network suggestions load one page; the discovery panel supports paging through network names.
+
+
 | UI source | Trakt request |
 | --- | --- |
 | Recommended by period (legacy) | `/{movies|shows}/recommended/{period}` |
@@ -54,7 +59,7 @@ Feed definitions persist in `/app/config/list-feeds.json`. Selecting a saved fee
 
 Personal recommendations are a third, distinct feed. Website-only recommendations and account/VIP-limited sources are not automatically supported simply because the browser is logged in. Requests use the public `api.trakt.tv` host with the existing browser credentials; there is no HTML scraping or arbitrary upstream-URL option.
 
-Periods offered: daily, weekly, monthly, yearly, all. Trakt can reject a particular period or filter for an endpoint. Optional filters use Trakt values (e.g. years `2020-2026`, genres `science-fiction,drama`, ratings `70-100`, languages `en`). Personal/social recommendations offer collection/watchlist exclusions and a watch window; their result limit is at most 100. Other feeds allow 1–1000 titles, bounded by 10 upstream pages. Missing/duplicate TMDB or TVDB IDs are omitted; fewer results than requested are possible.
+Periods offered: daily, weekly, monthly, yearly, all. Trakt can reject a particular period or filter for an endpoint. Optional filters use Trakt values (e.g. years `2020-2026`, genres `science-fiction,drama`, ratings `70-100`, languages `en`). Personal/social recommendations offer collection/watchlist exclusions and a watch window; their result limit is at most 100. Other feeds allow 1–1000 titles, bounded by 10 upstream requests and a 60-second deadline. Streaming rankings offer daily/weekly/monthly only. Calendar windows cover 1–93 days and are split into requests of at most 31 days. Changing UTC date invalidates rolling-window cache entries. Local sorting scans the scope before applying the title limit; a scope that exceeds the request budget fails rather than returning a misleading partial ranking. Missing/duplicate TMDB or TVDB IDs are omitted; fewer results than requested are possible.
 
 ## Formats, caching and failures
 
@@ -63,7 +68,7 @@ Periods offered: daily, weekly, monthly, yearly, all. Trakt can reject a particu
 - Default cache: 3600 seconds, configurable with `LIST_BRIDGE_CACHE_SECONDS`.
 - Cache is separated by feed definition and token fingerprint. Token rotation automatically invalidates old cache entries. Every upstream request rereads the token file.
 - Rate-limit responses respect numeric Retry-After (bounded to 1–3600 seconds). Other upstream failures return non-200 errors, not empty successful lists or partial results.
-- Empty success is returned only when Trakt actually returns an empty list. A nonempty response with no usable identifiers is an error.
+- Empty success is also valid when network/media filtering removes every usable title. A nonempty selected-media response with no usable identifiers is an error. Missing TVDB IDs can reduce Sonarr results.
 - Cache is in memory and resets with the container; feed definitions persist.
 - Importers decide when to poll; changing the bridge cache does not override their refresh schedule.
 - Existing browser helper remains responsible for authentication status and Slack login-expiry alerts. The bridge neither refreshes tokens itself nor sends duplicate Slack messages.

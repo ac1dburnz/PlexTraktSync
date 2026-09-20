@@ -19,8 +19,12 @@ def main():
         token.write_text(json.dumps({'access_token': 'offline-token', 'client_id': 'offline-client'}))
 
         def get(url, **kwargs):
+            if url.endswith('/networks'):
+                return SimpleNamespace(status_code=200, headers={}, json=lambda: [{'name': 'Netflix'}])
+            if '/lists/popular' in url:
+                return SimpleNamespace(status_code=200, headers={}, json=lambda: [{'list': {'name': 'Offline list', 'ids': {'trakt': 123}}}])
             key = 'show' if '/shows/' in url else 'movie'
-            data = [{key: {'title': 'Offline fixture', 'ids': {'tmdb': 42, 'tvdb': 123}}}]
+            data = [{key: {'title': 'Offline fixture', 'network': 'Netflix', 'ids': {'tmdb': 42, 'tvdb': 123}}}]
             return SimpleNamespace(status_code=200, headers={}, json=lambda: data)
 
         secret = 'offline-test-secret-at-least-24-chars'
@@ -52,11 +56,31 @@ def main():
                     assert response.status == 200
                     assert identifier in response.json()[0]
                     assert page.request.get(url.split('?')[0]).status == 403
+                page.get_by_role('button', name='Preset: Netflix new series').click()
+                expect(page.locator('#source')).to_have_value('calendar_new')
+                expect(page.locator('#networks')).to_have_value('Netflix')
+                page.locator('#days').fill('33')
+                page.get_by_role('button', name='Load network names').click()
+                expect(page.locator('#networkNames option')).to_have_count(1)
+                page.get_by_role('button', name='Preview titles').click()
+                expect(page.locator('#results')).to_contain_text('Offline fixture')
+                page.get_by_role('button', name='Save feed & get URL').click()
+                expect(page.locator('#urlBox')).to_be_visible()
+                page.get_by_text('Find Trakt lists, people and filter values', exact=True).click()
+                page.locator('#browseKind').select_option('popular_lists')
+                page.get_by_role('button', name='Find', exact=True).click()
+                expect(page.locator('#browseResults')).to_contain_text('Offline list')
+                page.get_by_role('button', name='Use', exact=True).click()
+                expect(page.locator('#source')).to_have_value('public_list')
+                expect(page.locator('#list')).to_have_value('123')
+                page.locator('#saved').select_option('netflix-new-series')
+                expect(page.locator('#days')).to_have_value('33')
+                expect(page.locator('#order')).to_have_value('newest')
                 page.screenshot(path='/tmp/list-bridge-ui.png', full_page=True)
                 page.reload()
                 page.get_by_label('Bridge key', exact=True).fill(secret)
                 page.get_by_role('button', name='Connect', exact=True).click()
-                expect(page.locator('#saved option')).to_have_count(3)
+                expect(page.locator('#saved option')).to_have_count(4)
                 page.locator('#saved').select_option('weekly-movies')
                 expect(page.locator('#name')).to_have_value('weekly-movies')
                 assert not errors, errors
