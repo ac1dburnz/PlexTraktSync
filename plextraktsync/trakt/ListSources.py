@@ -10,6 +10,8 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
+from plextraktsync.trakt.ListPreview import LocalFilterError, matches, validate_local
+
 
 class BridgeError(Exception):
     def __init__(self, message, status=502):
@@ -230,10 +232,12 @@ for key, label, path, media in [
 
 # Documented routes can lag the deployed API; keep them explicit, not silently
 # mapped to another feed or treated as an individual title when routing collides.
-SOURCES['hot']['label'] = 'Hot titles (experimental)'
-SOURCES['hot']['note'] = ('Documented by Trakt, but the 2026-09-20 live check returned HTTP 404 for movies '
-                          'and a single-title object for shows. Preview will report a failure until the API supports this route.')
-SOURCES['streaming']['note'] += ' The movies endpoint returned HTTP 500 in the 2026-09-20 check; shows returned a valid list.'
+SOURCES["hot"]["label"] = "Hot titles (experimental)"
+SOURCES["hot"]["note"] = (
+    "Documented by Trakt, but the 2026-09-20 live check returned HTTP 404 for movies "
+    "and a single-title object for shows. Preview will report a failure until the API supports this route."
+)
+SOURCES["streaming"]["note"] += " The movies endpoint returned HTTP 500 in the 2026-09-20 check; shows returned a valid list."
 
 
 def validate_feed(raw):
@@ -244,7 +248,7 @@ def validate_feed(raw):
     if not SLUG.fullmatch(raw["name"]) or raw["source"] not in SOURCES or raw["media"] not in SOURCES[raw["source"]]["media"]:
         raise BridgeError("Invalid name, media type or source.", 400)
     spec = SOURCES[raw["source"]]
-    allowed = {"name", "source", "media", "limit", "filters", "networks", "order"} | set(spec["fields"])
+    allowed = {"name", "source", "media", "limit", "filters", "networks", "order", "local_filters", "exclude_ids"} | set(spec["fields"])
     if set(raw) - allowed:
         raise BridgeError("Unsupported option for this source.", 400)
     feed = dict(raw)
@@ -302,6 +306,13 @@ def validate_feed(raw):
     order = feed.get("order", "upstream")
     if order not in ("upstream", "newest", "oldest", "title"):
         raise BridgeError("Invalid output order.", 400)
+    try:
+        validate_local(feed.get("local_filters", {}))
+    except LocalFilterError as exc:
+        raise BridgeError(str(exc), 400) from None
+    excluded = feed.get("exclude_ids", [])
+    if not isinstance(excluded, list) or len(excluded) > 1000 or any(type(x) is not int or x <= 0 for x in excluded):
+        raise BridgeError("Excluded IDs must be a list of up to 1000 positive importer IDs.", 400)
     return feed
 
 
@@ -316,7 +327,7 @@ def upstream(feed, today=None):
         start=(today + timedelta(days=feed.get("start_offset", 0))).isoformat(),
     )
     params = dict(feed["filters"])
-    params["extended"] = "full"
+    params["extended"] = "full,images"
     for key in [*IGNORE, "watch_window", "sort_by", "sort_how", "query", "hide_completed", "hide_not_completed", "only_rewatching"]:
         if key in feed:
             params[key] = str(feed[key]).lower() if isinstance(feed[key], bool) else feed[key]
@@ -369,6 +380,18 @@ def media_item(entry, media):
 
 
 def select_items(items, feed):
+    excluded = set(feed.get("exclude_ids", []))
+    id_key = "tmdb" if feed["media"] == "movies" else "tvdb"
+
+    def selected(entry):
+        item = media_item(entry, feed["media"])
+        ids = item.get("ids") or {}
+        if not isinstance(ids, dict):
+            raise BridgeError("Trakt returned malformed identifiers.")
+        identifier = ids.get(id_key)
+        return (type(identifier) is not int or identifier not in excluded) and matches(item, feed.get("local_filters", {}))
+
+    items = [e for e in items if selected(e)]
     networks = {n.strip().casefold() for n in feed.get("networks", "").split(",") if n.strip()}
     if networks:
         # Missing network is excluded, not guessed from availability or country.

@@ -1,0 +1,23 @@
+services:
+  list-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.all-in-one
+    image: plextraktsync:visual-imports
+    init: true
+    restart: unless-stopped
+    entrypoint: ["python", "/helper/list_bridge.py"]
+    env_file: .env
+    environment:
+      PYTHONPATH: /app:/helper
+      TRAKT_BROWSER_TOKEN_FILE: /run/trakt/trakt.json
+      LIST_BRIDGE_SECRET: ${LIST_BRIDGE_SECRET:?Set LIST_BRIDGE_SECRET in .env}
+    ports:
+      - "${BRIDGE_BIND_ADDRESS:-127.0.0.1}:${BRIDGE_PORT:-8090}:8090"
+    volumes:
+      - "${TRAKT_TOKEN_DIR:-${HOME}/.plextraktsync-secrets}:/run/trakt:ro"
+      - config:/app/config
+volumes:
+  config:
+    external: true
+    name: trakt-lists-test-config

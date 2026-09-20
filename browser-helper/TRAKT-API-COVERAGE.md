@@ -97,6 +97,6 @@ Paths expand only validated fields. Ratings optionally append `/1` through `/10`
 - Live checks are a dated observation using one account, not a guarantee of endpoint availability, account entitlements or complete catalogs. Trakt explicitly curates global calendars.
 - Actual Radarr/Sonarr applications were not driven during this change; importer JSON formats are tested against their documented/source schemas.
 
-## Follow-up intentionally outside this PR
+## Visual curation and direct imports
 
-Poster previews, title links, direct individual/bulk Radarr/Sonarr adds, and richer local language/year/exclusion filtering will be designed separately after confirmation. This PR does not store Radarr/Sonarr API keys or modify their libraries.
+A subsequent feature adds poster previews, title links, direct individual/bulk Radarr/Sonarr adds, and local language/year/genre/rating/exclusion filtering. See [VISUAL-IMPORTS.md](VISUAL-IMPORTS.md). Trakt access remains read-only; optional direct writes are confined to configured Radarr/Sonarr targets.

@@ -16,6 +16,14 @@ services:
       LIST_BRIDGE_SECRET: "REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_24_CHARACTERS"
       LIST_BRIDGE_CACHE_SECONDS: "3600"
       SLACK_WEBHOOK_URL: ""
+      # Optional poster fallback (choose one credential):
+      # TMDB_API_KEY: "YOUR_TMDB_V3_API_KEY"
+      # TMDB_READ_ACCESS_TOKEN: "YOUR_TMDB_READ_ACCESS_TOKEN"
+      # Optional direct adds; use addresses reachable from this container:
+      # RADARR_URL: "http://RADARR_HOST:7878"
+      # RADARR_API_KEY: "YOUR_RADARR_API_KEY"
+      # SONARR_URL: "http://SONARR_HOST:8989"
+      # SONARR_API_KEY: "YOUR_SONARR_API_KEY"
     networks:
       docker_network_self:
         ipv4_address: 192.168.2.98

@@ -2,6 +2,8 @@
 
 Create saved movie and TV feeds that Radarr/Sonarr can import over HTTP. The bridge shares the browser-token file with PlexTraktSync. It never creates or modifies a list on Trakt, and does not need another OAuth application or login.
 
+See [Visual previews and direct adds](VISUAL-IMPORTS.md) for poster cards, title links, local filters/exclusions, and optional individual/bulk Radarr/Sonarr additions.
+
 ## Enable in TrueNAS / Compose
 
 Add these settings to your existing **all-in-one** service, keeping its existing `/app/config` and `/browser` volumes and network:
