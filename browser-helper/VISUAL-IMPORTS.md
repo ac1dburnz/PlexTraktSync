@@ -77,3 +77,36 @@ For a checkout, build with `docker build -f Dockerfile.all-in-one -t plextraktsy
 - No additions were made to the user's real Radarr/Sonarr instances during development. Direct-write behavior is tested with API fixtures and checked against upstream API v3 controllers; test with your target version/configuration before bulk use.
 
 References: [Radarr add controller](https://github.com/Radarr/Radarr/blob/develop/src/Radarr.Api.V3/Movies/MovieController.cs), [Sonarr add controller](https://github.com/Sonarr/Sonarr/blob/develop/src/Sonarr.Api.V3/Series/SeriesController.cs), [Trakt image schema](https://github.com/trakt/trakt-api/blob/master/projects/api/src/contracts/_internal/response/imagesResponseSchema.ts).
+
+## One-file local setup with TMDB
+
+Use `.env.example` as the variable reference. Copy it to `.env` only if you do not already have a `.env`; fill in the private file and keep it out of Git. `.env` is also excluded from Docker builds. Docker Compose loads it automatically, so there is no need to `export` or `source` secrets.
+
+- `LIST_BRIDGE_SECRET`: at least 24 characters; enter this in the bridge UI. Keep your existing value to preserve existing feed URLs.
+- `TRAKT_TOKEN_DIR`: host directory containing `trakt.json`; defaults to your existing Mac browser-token directory.
+- `TMDB_API_KEY`: your TMDB v3 API key. Alternatively set `TMDB_READ_ACCESS_TOKEN` to the API Read Access Token; it takes precedence. Neither is sent to the browser.
+- `RADARR_URL`, `RADARR_API_KEY`, `SONARR_URL`, `SONARR_API_KEY`: optional direct-add connections. Use LAN addresses reachable from Docker.
+- `BRIDGE_BIND_ADDRESS`, `BRIDGE_PORT`: default to `127.0.0.1` and `8090`.
+- `TZ`, `LIST_BRIDGE_CACHE_SECONDS`: timezone and feed-cache settings.
+- `SLACK_WEBHOOK_URL`: used by the full supervisor, not by this bridge-only test service.
+
+```bash
+cd ~/PlexTraktSync
+# Edit private .env; do not paste keys into tracked templates.
+nano .env
+chmod 600 .env
+# Creates the volume only if absent; preserves your existing saved test feeds.
+docker volume create trakt-lists-test-config
+# Stop the old test container if it is using port 8090.
+docker stop trakt-lists-test
+# Build the latest checkout and start the bridge with your variables.
+docker compose -f compose.visual.yml up -d --build
+```
+
+Open http://localhost:8090 and enter `LIST_BRIDGE_SECRET`. Preview movies or shows. Trakt artwork is preferred; absent or failed Trakt images fall back to TMDB using the title's exact TMDB ID. Lookups happen as cards approach the viewport, cache for 24 hours (failures for five minutes), and do not change saved-feed contents. Titles lacking a TMDB ID retain the placeholder. Missing/invalid credentials or unavailable artwork do not break preview results.
+
+After editing `.env`, run `docker compose -f compose.visual.yml up -d --force-recreate`. For logs use `docker compose -f compose.visual.yml logs --tail=100`. Avoid sharing `docker compose config` output: resolved output includes credentials. The test service uses your existing token read-only; your existing all-in-one container remains responsible for token renewal.
+
+For TrueNAS, add `TMDB_API_KEY` or `TMDB_READ_ACCESS_TOKEN` alongside the four optional importer variables in the existing all-in-one service's `environment`. Do not replace its token path, browser volume or worker command with the Mac-only test configuration. Use an image built from this branch until the PR is merged and published.
+
+TMDB authentication and image URL behavior follow [application authentication](https://developer.themoviedb.org/docs/authentication-application) and [image basics](https://developer.themoviedb.org/docs/image-basics). This product uses the TMDB API but is not endorsed or certified by TMDB.

@@ -11,3 +11,8 @@
 
 **/__pycache__/
 **/*.pyc
+
+# Local credentials must never enter the build context.
+.env
+.env.*
+!.env.example
