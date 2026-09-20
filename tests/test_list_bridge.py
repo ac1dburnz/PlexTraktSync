@@ -381,3 +381,25 @@ def test_deadline_failure_does_not_cache(token):
     with pytest.raises(bridge.BridgeError, match='timed out'):
         client.fetch(feed())
     assert not client.cache
+
+
+def test_network_search_reads_all_pages_and_reuses_catalog(token):
+    calls = []
+
+    def get(url, **kwargs):
+        page = kwargs['params']['page']
+        calls.append(page)
+        data = [{'name': ''}, {'name': ' ABC ', 'country': 'us'}] if page == 1 else [{'name': 'Netflix', 'country': 'us'}]
+        return reply(data, headers={'X-Pagination-Page-Count': '2'})
+
+    client = bridge.TraktFeeds(token, get=get)
+    assert client.browse('networks', query='NETFLIX')['items'] == [{'name': 'Netflix', 'country': 'us'}]
+    assert client.browse('networks', query='abc')['items'] == [{'name': 'ABC', 'country': 'us'}]
+    assert client.browse('networks', query='missing')['total'] == 0
+    assert calls == [1, 2]
+
+
+def test_network_catalog_rejects_partial_results(token):
+    client = bridge.TraktFeeds(token, get=lambda *a, **kw: reply([{'name': 'ABC'}], headers={'X-Pagination-Page-Count': '11'}))
+    with pytest.raises(bridge.BridgeError, match='no partial catalog'):
+        client.browse('networks')
