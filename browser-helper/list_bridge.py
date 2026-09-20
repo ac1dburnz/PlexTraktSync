@@ -32,6 +32,7 @@ from plextraktsync.trakt.ListSources import (
     select_items,
     validate_feed,
 )
+from plextraktsync.trakt.PosterLookup import PosterLookup
 
 
 def convert(items, media):
@@ -280,7 +281,7 @@ class TraktFeeds:
             return result
 
 
-def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None):
+def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None, posters=None):
     if not secret or len(secret) < 24 or not secret.isascii():
         raise ValueError("LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.")
     app = Flask(__name__)
@@ -289,6 +290,7 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=N
     client = TraktFeeds(token_file, get=get, ttl=ttl)
     importers = arr if arr is not None else ArrImport()
     previews = PreviewStore()
+    artwork = posters if posters is not None else PosterLookup()
 
     @app.before_request
     def authenticate():
@@ -336,7 +338,13 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=N
     def preview_cards():
         feed = validate_feed(request.get_json(silent=True))
         items = client.fetch(feed, detailed=True)
-        return jsonify(items=items, media=feed["media"], preview_id=previews.save(feed["media"], items))
+        return jsonify(items=items, media=feed["media"], tmdb_enabled=artwork.enabled, preview_id=previews.save(feed["media"], items))
+
+    @app.get("/api/poster/<media>/<int:identifier>")
+    def poster(media, identifier):
+        if media not in ("movies", "shows") or identifier <= 0:
+            raise BridgeError("Invalid poster identifier.", 400)
+        return jsonify(poster=artwork.lookup(media, identifier))
 
     @app.post("/api/importers/<target>/add")
     def importer_add(target):
