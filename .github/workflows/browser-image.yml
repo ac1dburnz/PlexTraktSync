@@ -49,6 +49,9 @@ jobs:
       - name: Test list bridge UI and importer URLs offline
         run: |
           docker run --rm --network none --entrypoint python -e PYTHONPATH=/app:/helper plextraktsync:all-in-one-test /helper/smoke_list_bridge.py
+      - name: Test visual previews and direct adds offline
+        run: |
+          docker run --rm --network none --entrypoint python -e PYTHONPATH=/app:/helper plextraktsync:all-in-one-test /helper/smoke_visual_imports.py
       - name: Publish tested image
         uses: docker/build-push-action@v7
         with:
