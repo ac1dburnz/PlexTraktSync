@@ -110,3 +110,17 @@ After editing `.env`, run `docker compose -f compose.visual.yml up -d --force-re
 For TrueNAS, add `TMDB_API_KEY` or `TMDB_READ_ACCESS_TOKEN` alongside the four optional importer variables in the existing all-in-one service's `environment`. Do not replace its token path, browser volume or worker command with the Mac-only test configuration. Use an image built from this branch until the PR is merged and published.
 
 TMDB authentication and image URL behavior follow [application authentication](https://developer.themoviedb.org/docs/authentication-application) and [image basics](https://developer.themoviedb.org/docs/image-basics). This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+## Hide watched or collected titles from any feed
+
+Under **Local filters and exclusions**, enable **Hide watched titles from my Trakt account** and/or **Hide collected titles from my Trakt account**. Preview again, then save the feed. No new credentials or environment variables are needed. Both switches default off, so existing saved feeds keep their behavior.
+
+These switches use the account signed in through the existing browser token, even when the source is another user's public list. They apply to every movie/TV source before the result limit, alongside language/year/genre and manual exclusions. Preview cards and recurring importer URLs use the same results. The bridge continues source pagination to fill the limit where possible, within its existing source-fetch budget.
+
+For movies, watched means present in Trakt's watched-movies history and collected means present in its movie collection. For TV, **any watched episode excludes the whole show**, and **any collected episode excludes the whole show**. This is not a “fully watched series” filter, nor a direct scan of Plex/Radarr/Sonarr: those systems must sync their state into Trakt first.
+
+Library snapshots and feed results use `LIST_BRIDGE_CACHE_SECONDS` (default one hour). A new feed does not extend the age of a reused library snapshot. Token changes invalidate the account-specific cache. Updates may therefore take up to the cache interval to appear after reaching Trakt.
+
+Library loading follows Trakt pagination (250 items/page, at most 100 pages per snapshot), sharing the feed's 60-second fetch deadline. If authentication, rate limits, malformed data or incomplete pagination prevent a complete snapshot, the feed returns an error rather than silently returning unfiltered titles. An empty result is valid when every candidate is excluded.
+
+The bridge only reads Trakt and removes matching titles from its output. It does not delete media or change watched/collection state. Any independent list-cleanup settings in Radarr/Sonarr remain controlled by those applications. Legacy source-specific `ignore_*` options remain available and independent; these new switches provide consistent account-based filtering across all sources.

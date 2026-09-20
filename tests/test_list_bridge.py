@@ -21,7 +21,7 @@ def reply(data, status=200, headers=None):
 
 
 def movie(identifier=42):
-    return {'movie': {'title': 'Example', 'ids': {'tmdb': identifier, 'imdb': 'tt0000042'}}}
+    return {'movie': {'title': 'Example', 'ids': {'tmdb': identifier, 'imdb': f'tt{identifier:07d}'}}}
 
 
 @pytest.fixture
@@ -252,7 +252,7 @@ def test_exhaustive_sort_refuses_partial_scan(token):
 
     def get(url, **kwargs):
         calls.append(url)
-        return reply([movie()], headers={'X-Pagination-Page-Count': '11'})
+        return reply([movie()], headers={'X-Pagination-Page-Count': '101'})
 
     client = bridge.TraktFeeds(token, get=get)
     with pytest.raises(bridge.BridgeError, match='10 pages'):
@@ -413,3 +413,122 @@ def test_poster_endpoint_authenticated_and_does_not_expose_keys(tmp_path, token)
     result = client.get('/api/poster/movies/1', headers={'X-Bridge-Key': SECRET})
     assert result.json == {'poster': 'https://image.tmdb.org/t/p/w500/poster.jpg'}
     assert 'never-output' not in result.text
+
+
+@pytest.mark.parametrize('media', ['movies', 'shows'])
+@pytest.mark.parametrize('source,extra', [
+    ('trending', {}), ('recommendations', {}), ('public_list', {'list': '123'}), ('search', {'query': 'space'}),
+])
+def test_global_exclusions_all_sources_and_media(token, media, source, extra):
+    kind = 'movie' if media == 'movies' else 'show'
+    id_key = 'tmdb' if media == 'movies' else 'tvdb'
+
+    def entry(i):
+        return {kind: {'title': str(i), 'ids': {id_key: i, 'trakt': i + 100}}}
+
+    def get(url, **kwargs):
+        if '/sync/watched/' in url:
+            return reply([entry(1)])
+        if '/sync/collection/' in url:
+            return reply([entry(2)])
+        return reply([entry(1), entry(2), entry(3), entry(4)])
+
+    client = bridge.TraktFeeds(token, get=get)
+    definition = feed(source=source, media=media, hide_watched=True, hide_collected=True, limit=1, **extra)
+    assert client.fetch(definition)[0]['title'] == '3'
+    assert [x['title'] for x in client.fetch(definition, detailed=True)] == ['3']
+
+
+def test_global_exclusions_refill_pages_and_match_cross_ids(token):
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        page = kwargs['params']['page']
+        if '/sync/watched/' in url:
+            return reply([{'movie': {'ids': {'trakt': 99}}}])
+        if page == 1:
+            return reply([{'movie': {'title': 'Seen', 'ids': {'trakt': 99, 'tmdb': 1}}}], headers={'X-Pagination-Page-Count': '2'})
+        return reply([movie(2)], headers={'X-Pagination-Page-Count': '2'})
+
+    result = bridge.TraktFeeds(token, get=get).fetch(feed(source='trending', hide_watched=True, limit=1))
+    assert result == [{'id': 2, 'title': 'Example'}]
+    assert len(calls) == 3
+
+
+def test_library_cache_expiry_not_extended_by_new_feed(token):
+    now, seen = [0], [False]
+    calls = []
+
+    def get(url, **kwargs):
+        if '/sync/watched/' in url:
+            calls.append(url)
+            return reply([movie()] if seen[0] else [])
+        return reply([movie()])
+
+    client = bridge.TraktFeeds(token, get=get, ttl=60, clock=lambda: now[0])
+    assert client.fetch(feed(source='trending', hide_watched=True))
+    now[0] = 50
+    assert client.fetch(feed(source='popular', hide_watched=True))
+    assert len(calls) == 1
+    seen[0], now[0] = True, 61
+    assert client.fetch(feed(source='popular', hide_watched=True)) == []
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('bad', [reply({}, 200), reply([], 401), reply([{}]), reply([movie()], headers={'X-Pagination-Page-Count': '101'})])
+def test_library_failure_does_not_publish_unfiltered_feed(token, bad):
+    client = bridge.TraktFeeds(token, get=lambda *a, **kw: bad)
+    with pytest.raises(bridge.BridgeError):
+        client.fetch(feed(source='trending', hide_collected=True))
+    assert not client.cache
+    assert not client.library.cache
+
+
+def test_library_snapshot_pagination_and_token_rotation(token):
+    calls = []
+
+    def get(url, **kwargs):
+        if '/sync/collection/' in url:
+            page = kwargs['params']['page']
+            calls.append(page)
+            return reply([movie(page)], headers={'X-Pagination-Page-Count': '2'})
+        return reply([movie(1), movie(2), movie(3)])
+
+    client = bridge.TraktFeeds(token, get=get)
+    definition = feed(source='trending', hide_collected=True)
+    assert client.fetch(definition) == [{'id': 3, 'title': 'Example'}]
+    token.write_text(json.dumps({'access_token': 'new-account-token', 'client_id': 'client'}))
+    assert client.fetch(definition) == [{'id': 3, 'title': 'Example'}]
+    assert calls == [1, 2, 1, 2]
+
+
+def test_saved_feed_uses_same_global_exclusions(tmp_path, token):
+    def get(url, **kwargs):
+        return reply([movie(1)] if '/sync/watched/' in url else [movie(1), movie(2)])
+
+    client = bridge.create_app(tmp_path, token, SECRET, get=get).test_client()
+    h = {'X-Bridge-Key': SECRET}
+    definition = feed(source='trending', hide_watched=True, hide_collected=False)
+    assert client.post('/api/feeds', headers=h, json=definition).status_code == 201
+    preview = client.post('/api/preview', headers=h, json=definition)
+    saved = client.get('/radarr/weekly.json', query_string={'key': SECRET})
+    assert saved.json == preview.json == [{'id': 2, 'title': 'Example'}]
+    assert client.get('/api/feeds', headers=h).json['weekly']['hide_watched'] is True
+
+
+@pytest.mark.parametrize('field', ['hide_watched', 'hide_collected'])
+@pytest.mark.parametrize('value', ['true', 1, None, []])
+def test_global_exclusions_require_booleans(field, value):
+    with pytest.raises(bridge.BridgeError):
+        feed(source='trending', **{field: value})
+
+
+def test_large_library_over_ten_pages(token):
+    def get(url, **kwargs):
+        if '/sync/watched/' in url:
+            return reply([movie(kwargs['params']['page'])], headers={'X-Pagination-Page-Count': '14'})
+        return reply([movie(1), movie(14), movie(15)])
+
+    result = bridge.TraktFeeds(token, get=get).fetch(feed(source='trending', hide_watched=True))
+    assert result == [{'id': 15, 'title': 'Example'}]

@@ -26,6 +26,12 @@ def main():
         token.write_text(json.dumps({"access_token": "offline-token", "client_id": "offline-client"}))
 
         def trakt(url, **kwargs):
+            if "/sync/watched/" in url:
+                kind = "show" if url.endswith("shows") else "movie"
+                return response([{kind: {"ids": {"tmdb": 42, "tvdb": 42}}}])
+            if "/sync/collection/" in url:
+                kind = "show" if url.endswith("shows") else "movie"
+                return response([{kind: {"ids": {"tmdb": 43, "tvdb": 43}}}])
             kind = "show" if "/show" in url else "movie"
             return response(
                 [
@@ -96,6 +102,20 @@ def main():
                 expect(page.locator('.card[data-id="44"] img')).to_have_attribute("src", "https://image.tmdb.org/t/p/w500/fallback.jpg")
                 expect(page.locator(".card").first.get_by_role("link", name="Trakt", exact=True)).to_have_attribute("href", "https://trakt.tv/movies/fixture-42")
                 page.locator("#localFilters summary").click()
+                page.locator("#hideWatched").check()
+                page.locator("#hideCollected").check()
+                page.get_by_role("button", name="Preview titles", exact=True).click()
+                expect(page.locator(".card")).to_have_count(1)
+                expect(page.locator(".card")).to_have_attribute("data-id", "44")
+                page.locator("#name").fill("library-filtered")
+                page.get_by_role("button", name="Save feed & get URL").click()
+                expect(page.locator("#urlBox")).to_be_visible()
+                assert page.request.get(page.locator("#url").input_value()).json() == [{"id": 44, "title": "Fixture 44"}]
+                page.locator("#saved").select_option("library-filtered")
+                expect(page.locator("#hideWatched")).to_be_checked()
+                expect(page.locator("#hideCollected")).to_be_checked()
+                page.locator("#hideWatched").uncheck()
+                page.locator("#hideCollected").uncheck()
                 page.locator("#local_languages").fill("en")
                 page.locator("#local_year_min").fill("2020")
                 expect(page.locator("#visualPreview")).to_be_hidden()
