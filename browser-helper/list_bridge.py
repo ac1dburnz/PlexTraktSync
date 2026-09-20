@@ -18,6 +18,7 @@ from flask import Flask, jsonify, request, send_file
 
 from plextraktsync.trakt.ArrImport import ArrImport, PreviewStore
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
+from plextraktsync.trakt.LibraryExclusions import LibraryExclusions
 from plextraktsync.trakt.ListPreview import cards
 from plextraktsync.trakt.ListSources import (
     FILTERS,
@@ -103,6 +104,7 @@ class TraktFeeds:
         self.lock = threading.Lock()
         self.cache = {}
         self.retry_at = 0
+        self.library = LibraryExclusions(self.request, self.clock, self.ttl)
 
     def fingerprint(self):
         try:
@@ -152,7 +154,8 @@ class TraktFeeds:
         with self.lock:
             today = datetime.now(timezone.utc).date()
             # Date included so rolling windows cannot return yesterday's cached scope.
-            key = (self.fingerprint(), today.isoformat(), json.dumps(feed, sort_keys=True))
+            fingerprint = self.fingerprint()
+            key = (fingerprint, today.isoformat(), json.dumps(feed, sort_keys=True))
             now = self.clock()
             cached = self.cache.get(key)
             if cached and now - cached[0] < self.ttl:
@@ -160,6 +163,7 @@ class TraktFeeds:
             spec = SOURCES[feed["source"]]
             items = []
             deadline = now + 60
+            blocked, snapshot_time = self.library.load(feed, fingerprint, deadline)
             exhaustive = spec.get("calendar") or feed.get("order", "upstream") != "upstream"
             calls = 0
             for path, params in requests_for(feed, today):
@@ -171,7 +175,7 @@ class TraktFeeds:
                     data, pages = self.request(path, {**params, "limit": 100, "page": page}, deadline)
                     batch = normalize(data, feed)
                     items.extend(batch)
-                    result = convert(select_items(items, feed), feed["media"])
+                    result = convert(select_items(self.library.filter(items, feed["media"], blocked), feed), feed["media"])
                     if spec.get("single") or page >= pages:
                         break
                     if not exhaustive and len(result) >= feed["limit"]:
@@ -182,10 +186,10 @@ class TraktFeeds:
                     raise BridgeError("Trakt pagination exceeded 10 pages. Narrow the feed scope; no partial list was published.")
             if items and not convert(items, feed["media"]):
                 raise BridgeError("No usable TMDB/TVDB identifiers were returned; refusing to publish an empty feed.")
-            result = cards(select_items(items, feed), feed["media"], feed["limit"])
+            result = cards(select_items(self.library.filter(items, feed["media"], blocked), feed), feed["media"], feed["limit"])
             if len(self.cache) >= 100:
                 self.cache.clear()
-            self.cache[key] = (self.clock(), result)
+            self.cache[key] = (snapshot_time, result)
             return result if detailed else convert(result, feed["media"])
 
     def browse(self, kind, user="me", query="", page=1, media="shows"):

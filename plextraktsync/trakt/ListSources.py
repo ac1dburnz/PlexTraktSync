@@ -248,10 +248,16 @@ def validate_feed(raw):
     if not SLUG.fullmatch(raw["name"]) or raw["source"] not in SOURCES or raw["media"] not in SOURCES[raw["source"]]["media"]:
         raise BridgeError("Invalid name, media type or source.", 400)
     spec = SOURCES[raw["source"]]
-    allowed = {"name", "source", "media", "limit", "filters", "networks", "order", "local_filters", "exclude_ids"} | set(spec["fields"])
+    allowed = {
+        "name", "source", "media", "limit", "filters", "networks", "order",
+        "local_filters", "exclude_ids", "hide_watched", "hide_collected",
+    } | set(spec["fields"])
     if set(raw) - allowed:
         raise BridgeError("Unsupported option for this source.", 400)
     feed = dict(raw)
+    for flag in ("hide_watched", "hide_collected"):
+        if flag in feed and type(feed[flag]) is not bool:
+            raise BridgeError("Watched/collected exclusions must be booleans.", 400)
     limit = feed.setdefault("limit", 100)
     if type(limit) is not int or not 1 <= limit <= spec.get("max_limit", 1000):
         raise BridgeError(f"Limit must be 1–{spec.get('max_limit', 1000)}.", 400)
