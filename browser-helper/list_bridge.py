@@ -16,7 +16,9 @@ import requests
 from click import ClickException
 from flask import Flask, jsonify, request, send_file
 
+from plextraktsync.trakt.ArrImport import ArrImport, PreviewStore
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
+from plextraktsync.trakt.ListPreview import cards
 from plextraktsync.trakt.ListSources import (
     FILTERS,
     OPTIONS,
@@ -144,7 +146,7 @@ class TraktFeeds:
         except (requests.RequestException, ValueError, TypeError):
             raise BridgeError("Could not fetch valid Trakt data. No partial list was published.", 502) from None
 
-    def fetch(self, feed):
+    def fetch(self, feed, detailed=False):
         feed = validate_feed(feed)
         with self.lock:
             today = datetime.now(timezone.utc).date()
@@ -153,7 +155,7 @@ class TraktFeeds:
             now = self.clock()
             cached = self.cache.get(key)
             if cached and now - cached[0] < self.ttl:
-                return cached[1]
+                return cached[1] if detailed else convert(cached[1], feed["media"])
             spec = SOURCES[feed["source"]]
             items = []
             deadline = now + 60
@@ -179,11 +181,11 @@ class TraktFeeds:
                     raise BridgeError("Trakt pagination exceeded 10 pages. Narrow the feed scope; no partial list was published.")
             if items and not convert(items, feed["media"]):
                 raise BridgeError("No usable TMDB/TVDB identifiers were returned; refusing to publish an empty feed.")
-            result = convert(select_items(items, feed), feed["media"])[: feed["limit"]]
+            result = cards(select_items(items, feed), feed["media"], feed["limit"])
             if len(self.cache) >= 100:
                 self.cache.clear()
             self.cache[key] = (self.clock(), result)
-            return result
+            return result if detailed else convert(result, feed["media"])
 
     def browse(self, kind, user="me", query="", page=1, media="shows"):
         if not isinstance(user, str) or not SLUG.fullmatch(user) or media not in ("movies", "shows"):
@@ -252,17 +254,19 @@ class TraktFeeds:
             return result
 
 
-def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600):
+def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None):
     if not secret or len(secret) < 24 or not secret.isascii():
         raise ValueError("LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.")
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 16384
     store = FeedStore(Path(config_dir) / "list-feeds.json")
     client = TraktFeeds(token_file, get=get, ttl=ttl)
+    importers = arr if arr is not None else ArrImport()
+    previews = PreviewStore()
 
     @app.before_request
     def authenticate():
-        if request.path in ("/", "/healthz"):
+        if request.path in ("/", "/healthz", "/preview.js"):
             return
         supplied = request.headers.get("X-Bridge-Key", "")
         if request.method == "GET" and not supplied:
@@ -277,7 +281,8 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' https://trakt.tv https://*.trakt.tv https://image.tmdb.org; frame-ancestors 'none'"
         )
         return response
 
@@ -288,6 +293,34 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600):
     @app.get("/")
     def index():
         return send_file(Path(__file__).with_name("list_bridge.html"))
+
+    @app.get("/preview.js")
+    def preview_script():
+        return send_file(Path(__file__).with_name("preview.js"))
+
+    @app.get("/api/importers")
+    def available_importers():
+        return jsonify(importers.configured())
+
+    @app.get("/api/importers/<target>/options")
+    def importer_options(target):
+        return jsonify(importers.options(target))
+
+    @app.post("/api/preview/cards")
+    def preview_cards():
+        feed = validate_feed(request.get_json(silent=True))
+        items = client.fetch(feed, detailed=True)
+        return jsonify(items=items, media=feed["media"], preview_id=previews.save(feed["media"], items))
+
+    @app.post("/api/importers/<target>/add")
+    def importer_add(target):
+        if target not in ("radarr", "sonarr"):
+            raise BridgeError("Unknown importer.", 404)
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or set(data) != {"preview_id", "ids", "settings"}:
+            raise BridgeError("Invalid add request.", 400)
+        items = previews.read(data["preview_id"], target, data["ids"])
+        return jsonify(results=importers.add(target, items, data["settings"]))
 
     @app.get("/healthz")
     def health():
