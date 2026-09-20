@@ -4,6 +4,7 @@ image="ghcr.io/${GITHUB_REPOSITORY,,}"
 # A delayed rerun of an older SHA must not roll moving tags backwards.
 git fetch origin --tags
 newer=false
+published_tags=$(gh release list --limit 1000 --json tagName,isDraft --jq '.[] | select(.isDraft == false) | .tagName')
 while IFS= read -r tag; do
   if [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     target=$(git rev-parse "$tag^{commit}")
@@ -11,7 +12,7 @@ while IFS= read -r tag; do
       newer=true
     fi
   fi
-done < <(git tag --list)
+done <<< "$published_tags"
 if [[ "$newer" == false ]]; then
   docker buildx imagetools create --tag "$image:latest" --tag "$image:main" "$image:$VERSION"
   docker buildx imagetools create --tag "$image:all-in-one" "$image:all-in-one-$VERSION"

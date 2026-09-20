@@ -61,6 +61,8 @@ jobs:
             name=ac1dburn/plextraktsync,enable=${{ vars.PUBLISH_DOCKERHUB == 'true' }}
           tags: |
             type=raw,value=${{ inputs.version }}
+          labels: |
+            org.opencontainers.image.version=${{ inputs.version }}
 
       - name: Build and export to Docker
         uses: docker/build-push-action@v7
@@ -79,15 +81,14 @@ jobs:
         run: |
           docker run --network none -e TRACE=1 --rm ${{ env.TEST_IMAGE }} test
 
-      - name: Build and push Docker image
-        if: inputs.publish
+      - name: Build all supported platforms
         uses: docker/build-push-action@v7
         env:
           APP_VERSION: ${{ inputs.version }}
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
+          push: ${{ inputs.publish }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
