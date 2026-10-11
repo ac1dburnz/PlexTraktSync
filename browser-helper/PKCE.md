@@ -101,7 +101,7 @@ It does not mount real tokens or alter the Compose lab's authentication state.
 ## Validation status (2026-10-11)
 
 - Production Docker image built successfully.
-- Full suite: **330 passed, 11 skipped, 77 subtests passed**, with network disabled.
+- Full suite: **342 passed, 11 skipped, 77 subtests passed**, with network disabled.
 - Every one of the 77 source/media pairs was saved, previewed and exported while
   switching browser → PKCE → browser, using mocked upstream responses.
 - Browser token capture updates preserve PKCE credentials; inactive broken
@@ -127,3 +127,16 @@ regression suite.
 
 References: https://developer.trakt.tv/docs/pkce and
 https://developer.trakt.tv/docs/authentication-oauth.
+
+## Core sync, watch and CLI coverage
+
+PKCE installs the same selected-auth adapter on the core pytrakt client used by
+all commands, sync queues and the watcher; it is not limited to bridge feeds.
+With browser-token mode unset, regression checks exercise account discovery,
+watched history, collection, watchlist and rating reads, collection/watchlist
+adds and removals, history/rating writes, and watch start/stop scrobbling through
+real pytrakt calls with an offline HTTP adapter. Both auth methods are checked.
+First-time sync login and CLI PKCE exchange verify the account without prompting
+for a device client secret. Saving the account preserves PKCE and VPN environment
+settings. Restart a running watcher after changing the selected method so cached
+account and media state reload consistently.
