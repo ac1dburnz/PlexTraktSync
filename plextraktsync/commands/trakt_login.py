@@ -92,6 +92,7 @@ def trakt_login(method=None, redirect_uri=None, allow_local_http=False):
             auth.finish(params.get("code", [""])[0], params.get("state", [""])[0])
         else:
             auth.select(method)
+        login()
         factory.print("Trakt authentication method saved. Future commands use this method.")
         return
     login()
