@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from itertools import pairwise
 from unittest.mock import Mock
 
@@ -70,11 +70,16 @@ def test_missing_headers_back_off_exponentially(lab, monkeypatch):
         assert sleeps[-1] == wait
 
 
-def test_concurrent_clients_cannot_reserve_same_slot(tmp_path):
+def acquire_write(path):
+    RateLimiter(path).acquire("POST")
+
+
+@pytest.mark.parametrize("executor", [ThreadPoolExecutor, ProcessPoolExecutor])
+def test_concurrent_clients_cannot_reserve_same_slot(tmp_path, executor):
     path = tmp_path / "shared.sqlite"
     clients = [RateLimiter(path) for _ in range(3)]
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(lambda client: client.acquire("POST"), clients))
+    with executor(max_workers=3) as pool:
+        list(pool.map(acquire_write, [path] * 3))
     with clients[0].connect() as db:
         times = [row[0] for row in db.execute("SELECT at FROM calls ORDER BY at")]
     assert len(times) == 3
