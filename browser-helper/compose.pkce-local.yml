@@ -1,0 +1,26 @@
+name: plextraktsync-pkce-local
+services:
+  pkce:
+    image: plextraktsync:pkce-local
+    build:
+      context: ..
+      dockerfile: Dockerfile.all-in-one
+    command: ["browser-only"]
+    init: true
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:18090:8090"
+      - "127.0.0.1:16080:6080"
+    environment:
+      TRAKT_BROWSER_HEADLESS: "false"
+      LIST_BRIDGE_ENABLED: "true"
+      LIST_BRIDGE_SECRET: ${LIST_BRIDGE_SECRET:?Set the local bridge key}
+      TRAKT_PKCE_CLIENT_ID: ${TRAKT_PKCE_CLIENT_ID:?Set your Trakt PKCE app Client ID}
+      TRAKT_PKCE_REDIRECT_URI: "http://localhost:18090/oauth/callback"
+      TRAKT_PKCE_ALLOW_LOCAL_HTTP: "true"
+    volumes:
+      - pkce-local-config:/app/config
+      - pkce-local-browser:/browser
+volumes:
+  pkce-local-config:
+  pkce-local-browser:

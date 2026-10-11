@@ -136,14 +136,16 @@ class Factory:
     def session(self):
         from requests_cache import CachedSession
 
-        return CachedSession(
+        from plextraktsync.trakt.TraktTransport import configure
+
+        return configure(CachedSession(
             cache_name=self.config.cache_path,
             # Plex sends "Cache-Control: no-cache" headers to requests we want to cache
             cache_control=False,
             urls_expire_after=self.urls_expire_after,
             # Plex doesn't Send Vary: X-Plex-Container-Start
             match_headers=["X-Plex-Container-Start"],
-        )
+        ))
 
     @cached_property
     def sync(self):

@@ -80,8 +80,9 @@ def main():
             monitor.check()
 
     with sync_playwright() as playwright:
+        proxy = {"server": os.getenv("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080")} if os.getenv("TRAKT_VPN_ENABLED", "false").lower() == "true" else None
         context = playwright.chromium.launch_persistent_context(
-            str(args.profile), headless=os.getenv("TRAKT_BROWSER_HEADLESS", "false").lower() == "true",
+            str(args.profile), proxy=proxy, headless=os.getenv("TRAKT_BROWSER_HEADLESS", "false").lower() == "true",
         )
         context.on("response", capture)
         page = context.pages[0] if context.pages else context.new_page()

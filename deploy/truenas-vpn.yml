@@ -1,0 +1,26 @@
+# Merge with truenas-lists.yml; build and load the gateway image first.
+services:
+  plextraktsync:
+    environment:
+      TRAKT_VPN_ENABLED: "true"
+      TRAKT_VPN_PROXY_URL: http://trakt-vpn:8080
+      TRAKT_VPN_CONTROL_URL: http://trakt-vpn:9090
+    networks:
+      trakt_vpn: {}
+    depends_on: [trakt-vpn]
+  trakt-vpn:
+    image: plextraktsync:wireguard-gateway
+    cap_add: [NET_ADMIN]
+    restart: unless-stopped
+    environment:
+      VPN_MODE: auto
+      VPN_FAILURE_THRESHOLD: "3"
+      VPN_SWITCH_COOLDOWN: "120"
+      VPN_RECOVERY_INTERVAL: "900"
+      VPN_HEALTH_INTERVAL: "30"
+    volumes:
+      - ${WIREGUARD_CONFIG_DIR:?Set directory containing WireGuard profiles}:/wireguard:ro
+    networks:
+      trakt_vpn: {}
+networks:
+  trakt_vpn:

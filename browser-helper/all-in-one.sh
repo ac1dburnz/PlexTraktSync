@@ -32,9 +32,16 @@ if [[ "${LIST_BRIDGE_ENABLED:-false}" == true ]]; then
   bridge_pid=$!
 fi
 rm -f /browser/auth-ready
-python /helper/capture_trakt_token.py --profile /browser/profile --output "$TRAKT_BROWSER_TOKEN_FILE" &
+PYTHONPATH=/app:/helper python /helper/capture_trakt_token.py --profile /browser/profile --output "$TRAKT_BROWSER_TOKEN_FILE" &
 browser_pid=$!
-while [[ ! -f /browser/auth-ready ]]; do
+auth_ready() {
+  PYTHONPATH=/app:/helper python - <<'PYTHON'
+import os
+from auth_ready import auth_ready
+raise SystemExit(0 if auth_ready(os.environ["TRAKT_BROWSER_TOKEN_FILE"], os.environ["PTS_CONFIG_DIR"], "/browser") else 1)
+PYTHON
+}
+while ! auth_ready; do
   kill -0 "$browser_pid" 2>/dev/null || exit 1
   if [[ -n "${bridge_pid:-}" ]]; then kill -0 "$bridge_pid" 2>/dev/null || exit 1; fi
   sleep 2

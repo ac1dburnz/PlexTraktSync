@@ -1,0 +1,16 @@
+name: plextraktsync-vpn-lab
+services:
+  trakt-vpn:
+    build:
+      context: .
+    image: plextraktsync:wireguard-gateway
+    cap_add: [NET_ADMIN]
+    restart: unless-stopped
+    environment:
+      VPN_MODE: ${VPN_MODE:-auto}
+      VPN_FAILURE_THRESHOLD: ${VPN_FAILURE_THRESHOLD:-3}
+      VPN_SWITCH_COOLDOWN: ${VPN_SWITCH_COOLDOWN:-120}
+      VPN_RECOVERY_INTERVAL: ${VPN_RECOVERY_INTERVAL:-900}
+      VPN_HEALTH_INTERVAL: ${VPN_HEALTH_INTERVAL:-30}
+    volumes:
+      - ${WIREGUARD_CONFIG_PATH:?Set a WireGuard config path}:/wireguard/provider1.conf:ro

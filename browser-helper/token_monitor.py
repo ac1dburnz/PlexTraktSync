@@ -8,6 +8,8 @@ from pathlib import Path
 
 import requests
 
+from plextraktsync.trakt.TraktTransport import get as trakt_get
+
 
 def validate(data, get=requests.get):
     if not isinstance(data, dict):
@@ -21,7 +23,8 @@ def validate(data, get=requests.get):
         if isinstance(expires, bool) or not isinstance(expires, (float, int)) or not math.isfinite(expires) or expires <= time.time():
             return "login_required"
     try:
-        response = get("https://api.trakt.tv/users/settings", headers={
+        fetch = trakt_get if get is requests.get else get
+        response = fetch("https://api.trakt.tv/users/settings", headers={
             "Authorization": "Bearer " + data["access_token"],
             "trakt-api-key": data["client_id"], "trakt-api-version": "2",
             "User-Agent": "PlexTraktSync", "Accept": "application/json",

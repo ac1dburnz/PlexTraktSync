@@ -13,6 +13,10 @@ services:
       TRAKT_BROWSER_HEADLESS: "true"
       TRAKT_BROWSER_TOKEN_FILE: /app/config/browser-token.json
       LIST_BRIDGE_ENABLED: "true"
+      # Register this exact redirect in your Trakt app before connecting PKCE:
+      TRAKT_PKCE_CLIENT_ID: "${TRAKT_PKCE_CLIENT_ID:?Set your Trakt PKCE app Client ID}"
+      TRAKT_PKCE_REDIRECT_URI: "http://192.168.1.100:8090/oauth/callback"
+      TRAKT_PKCE_ALLOW_LOCAL_HTTP: "true"
       LIST_BRIDGE_SECRET: "REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_24_CHARACTERS"
       LIST_BRIDGE_CACHE_SECONDS: "3600"
       SLACK_WEBHOOK_URL: ""
@@ -26,11 +30,11 @@ services:
       # SONARR_API_KEY: "YOUR_SONARR_API_KEY"
     networks:
       docker_network_self:
-        ipv4_address: 192.168.2.98
+        ipv4_address: 192.168.1.100
     ports:
       - "8090:8090"
       # For interactive login, set TRAKT_BROWSER_HEADLESS=false and enable:
       # - "6080:6080"
     volumes:
-      - /mnt/AppyHoe/jailmaker/jails/sabnzbd/rootfs/root/.local/pipx/venvs/plextraktsync/lib/python3.11/site-packages/plextraktsync/config:/app/config
-      - /mnt/AppyHoe/apps/plextraktsync/browser:/browser
+      - /mnt/YOUR_POOL/apps/plextraktsync/config:/app/config
+      - /mnt/YOUR_POOL/apps/plextraktsync/browser:/browser

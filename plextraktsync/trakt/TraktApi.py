@@ -22,7 +22,7 @@ from plextraktsync.decorators.rate_limit import rate_limit
 from plextraktsync.decorators.retry import retry
 from plextraktsync.decorators.time_limit import time_limit
 from plextraktsync.factory import factory, logging
-from plextraktsync.path import pytrakt_file
+from plextraktsync.path import config_dir, pytrakt_file
 from plextraktsync.trakt.PartialTraktMedia import PartialTraktMedia
 from plextraktsync.trakt.TraktItem import TraktItem
 from plextraktsync.trakt.TraktLookup import TraktLookup
@@ -50,10 +50,13 @@ class TraktApi:
         trakt.core.CONFIG_PATH = pytrakt_file
         trakt.core.session = factory.session
         self.browser_token_file = factory.config["TRAKT_BROWSER_TOKEN_FILE"]
-        if self.browser_token_file:
-            from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
+        from pathlib import Path
 
-            auth = BrowserTokenAuth(self.browser_token_file)
+        self.external_auth = bool(self.browser_token_file or (Path(config_dir) / "trakt-auth.json").exists())
+        if self.external_auth:
+            from plextraktsync.trakt.PkceAuth import TraktAuth
+
+            auth = TraktAuth(self.browser_token_file or Path(config_dir) / "browser-token.json", config_dir)
             auth.read()
             trakt.core.api().base_url = "https://api.trakt.tv/"
             trakt.core.api().auth = auth

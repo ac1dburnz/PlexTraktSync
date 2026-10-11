@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import requests
 from click import ClickException
@@ -19,6 +19,8 @@ from flask import Flask, jsonify, request, send_file
 from plextraktsync.trakt.ArrImport import ArrImport, PreviewStore
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
 from plextraktsync.trakt.LibraryExclusions import LibraryExclusions
+from plextraktsync.trakt.PkceAuth import TraktAuth
+from plextraktsync.trakt.TraktTransport import get as trakt_get
 from plextraktsync.trakt.ListPreview import cards
 from plextraktsync.trakt.ListSources import (
     FILTERS,
@@ -98,9 +100,9 @@ class FeedStore:
 
 
 class TraktFeeds:
-    def __init__(self, token_file, get=requests.get, ttl=3600, clock=time.monotonic):
-        self.auth = BrowserTokenAuth(token_file)
-        self.get, self.ttl, self.clock = get, ttl, clock
+    def __init__(self, token_file, get=requests.get, ttl=3600, clock=time.monotonic, auth=None):
+        self.auth = auth if auth is not None else BrowserTokenAuth(token_file)
+        self.get, self.ttl, self.clock = (trakt_get if get is requests.get else get), ttl, clock
         self.lock = threading.Lock()
         self.cache = {}
         self.retry_at = 0
@@ -110,7 +112,7 @@ class TraktFeeds:
         try:
             token = self.auth.read()
         except ClickException:
-            raise BridgeError("Trakt login required. Check browser authentication and Slack status.", 503) from None
+            raise BridgeError("Trakt login required. Check the selected Trakt authentication method.", 503) from None
         return hashlib.sha256((token["access_token"] + ":" + token["client_id"]).encode()).hexdigest()
 
     def request(self, path, params, deadline):
@@ -145,7 +147,7 @@ class TraktFeeds:
                 raise BridgeError("Trakt fetch timed out. No partial list was published.", 503)
             return data, pages
         except ClickException:
-            raise BridgeError("Trakt authentication failed or redirected. Check browser authentication.", 503) from None
+            raise BridgeError("Trakt authentication failed or redirected. Check the selected Trakt authentication method.", 503) from None
         except (requests.RequestException, ValueError, TypeError):
             raise BridgeError("Could not fetch valid Trakt data. No partial list was published.", 502) from None
 
@@ -285,20 +287,23 @@ class TraktFeeds:
             return result
 
 
-def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None, posters=None):
+def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None, posters=None, pkce_redirect_uri=None, auth_post=None, allow_local_http=None):
     if not secret or len(secret) < 24 or not secret.isascii():
         raise ValueError("LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.")
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 16384
     store = FeedStore(Path(config_dir) / "list-feeds.json")
-    client = TraktFeeds(token_file, get=get, ttl=ttl)
+    auth = TraktAuth(token_file, config_dir, post=auth_post)
+    callback_uri = pkce_redirect_uri or os.environ.get("TRAKT_PKCE_REDIRECT_URI", "")
+    local_http = os.environ.get("TRAKT_PKCE_ALLOW_LOCAL_HTTP", "false").lower() == "true" if allow_local_http is None else allow_local_http
+    client = TraktFeeds(token_file, get=get, ttl=ttl, auth=auth)
     importers = arr if arr is not None else ArrImport()
     previews = PreviewStore()
     artwork = posters if posters is not None else PosterLookup()
 
     @app.before_request
     def authenticate():
-        if request.path in ("/", "/healthz", "/preview.js"):
+        if request.path in ("/", "/healthz", "/preview.js", "/oauth/callback"):
             return
         supplied = request.headers.get("X-Bridge-Key", "")
         if request.method == "GET" and not supplied:
@@ -329,6 +334,47 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=N
     @app.get("/preview.js")
     def preview_script():
         return send_file(Path(__file__).with_name("preview.js"))
+
+    @app.errorhandler(ClickException)
+    def auth_error(exc):
+        return jsonify(error=str(exc)), 400
+
+    @app.get("/api/vpn")
+    def vpn_status():
+        if os.getenv("TRAKT_VPN_ENABLED", "false").lower() != "true":
+            return jsonify(enabled=False)
+        try:
+            response = requests.get(os.getenv("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090").rstrip("/") + "/status", timeout=2, allow_redirects=False)
+            response.raise_for_status()
+            return jsonify(enabled=True, **response.json())
+        except (requests.RequestException, ValueError, TypeError):
+            return jsonify(enabled=True, route="unavailable", error="VPN gateway unavailable."), 503
+
+    @app.get("/api/auth")
+    def auth_status():
+        return jsonify(method=auth.method(), pkce_connected=auth.pkce.path.exists(), pkce_configured=bool(callback_uri and os.getenv("TRAKT_PKCE_CLIENT_ID")))
+
+    @app.post("/api/auth/method")
+    def auth_method():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            raise BridgeError("Choose an authentication method.", 400)
+        with client.lock:
+            auth.select(data.get("method"))
+        return jsonify(method=auth.method())
+
+    @app.post("/api/auth/pkce/start")
+    def pkce_start():
+        if not callback_uri or urlsplit(callback_uri).path != "/oauth/callback":
+            raise BridgeError("Configure TRAKT_PKCE_REDIRECT_URI as a URL ending in /oauth/callback.", 400)
+        return jsonify(url=auth.start(callback_uri, allow_local_http=local_http))
+
+    @app.get("/oauth/callback")
+    def pkce_callback():
+        # Public callback authenticates using the unpredictable, single-use state.
+        with client.lock:
+            auth.finish(request.args.get("code", ""), request.args.get("state", ""))
+        return "Trakt PKCE connected. Return to the feed builder. Browser/session credentials are preserved.", 200
 
     @app.get("/api/importers")
     def available_importers():
