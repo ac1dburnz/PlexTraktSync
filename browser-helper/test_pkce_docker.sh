@@ -6,7 +6,7 @@ docker build -f Dockerfile.all-in-one -t plextraktsync:pkce-local .
 docker build -f browser-helper/Dockerfile.pkce-tests -t plextraktsync:pkce-tests .
 docker run --rm --network none \
   -e PTS_CONFIG_DIR=/tmp/pts-config -e PTS_CACHE_DIR=/tmp/pts-cache -e PTS_LOG_DIR=/tmp/pts-log \
-  -v "$root/tests:/tests-src:ro" -v "$root/browser-helper:/app/browser-helper:ro" -v "$root/vpn-helper:/app/vpn-helper:ro" \
+  -v "$root/tests:/tests-src:ro" -v "$root/browser-helper:/app/browser-helper:ro" -v "$root/vpn-helper:/app/vpn-helper:ro" -v "$root/scripts:/app/scripts:ro" \
   plextraktsync:pkce-tests
 docker run --rm --network none -e PTS_CONFIG_DIR=/tmp/pts-config plextraktsync:pkce-local test
 docker run --rm --network none --entrypoint python -e PYTHONPATH=/app \

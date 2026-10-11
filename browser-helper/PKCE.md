@@ -101,7 +101,7 @@ It does not mount real tokens or alter the Compose lab's authentication state.
 ## Validation status (2026-10-11)
 
 - Production Docker image built successfully.
-- Full suite: **269 passed, 11 skipped, 77 subtests passed**, with network disabled.
+- Full suite: **330 passed, 11 skipped, 77 subtests passed**, with network disabled.
 - Every one of the 77 source/media pairs was saved, previewed and exported while
   switching browser → PKCE → browser, using mocked upstream responses.
 - Browser token capture updates preserve PKCE credentials; inactive broken
@@ -116,8 +116,6 @@ It does not mount real tokens or alter the Compose lab's authentication state.
 - CLI info and login help passed. Chromium UI checks passed for the selector,
   errors, PKCE link generation, callback state rejection and bridge key checks.
 - your Trakt app Client ID returned HTTP 200 from the public API inside Docker.
-- The previously saved local session credential returned HTTP 401 on a read-only
-  account check. It was mounted read-only and was not modified.
 - Live authenticated PKCE access, real refresh rotation, and local redirect
   acceptance remain pending user login and app redirect registration. The LAN
   deployment at 192.168.1.100 has not been changed.

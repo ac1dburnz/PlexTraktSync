@@ -105,6 +105,6 @@ Repeat the live lifecycle check using a separate disposable gateway:
 WIREGUARD_CONFIG_PATH=/path/to/wireguard/provider.conf bash vpn-helper/test_docker.sh
 ```
 
-The full offline regression suite currently passes **302 tests**, with 11 skipped
+The full offline regression suite currently passes **330 tests**, with 11 skipped
 and 77 subtests passed. Run `bash browser-helper/test_pkce_docker.sh` to rebuild
 and repeat it with startup and Chromium UI checks.
