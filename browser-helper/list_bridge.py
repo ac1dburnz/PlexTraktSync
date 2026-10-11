@@ -132,7 +132,7 @@ class TraktFeeds:
             )
             if response.status_code == 429:
                 try:
-                    wait = max(1, min(3600, int(response.headers.get("Retry-After", "60"))))
+                    wait = max(1, int(response.headers.get("Retry-After", "60")))
                 except ValueError:
                     wait = 60
                 self.retry_at = self.clock() + wait

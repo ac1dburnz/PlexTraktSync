@@ -45,8 +45,8 @@ The gateway's ports are internal Docker endpoints; no host port is published.
 Inspect it without displaying WireGuard keys:
 
 ```sh
-docker compose -f vpn-helper/compose.yml exec trakt-vpn python -c \
- 'import urllib.request; print(urllib.request.urlopen("http://localhost:9090/status").read().decode())'
+docker compose -f browser-helper/compose.pkce-local.yml -f browser-helper/compose.vpn-local.yml exec pkce python -c \
+ 'import urllib.request; print(urllib.request.urlopen("http://trakt-vpn:9090/status").read().decode())'
 ```
 
 To disable VPN support, recreate the app with only `compose.pkce-local.yml`,

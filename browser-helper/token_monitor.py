@@ -9,6 +9,7 @@ from pathlib import Path
 
 import requests
 
+from plextraktsync.trakt.RateLimiter import RateLimiter
 from plextraktsync.trakt.TraktTransport import get as trakt_get
 
 
@@ -24,6 +25,8 @@ def validate(data, get=requests.get):
         if isinstance(expires, bool) or not isinstance(expires, (float, int)) or not math.isfinite(expires) or expires <= time.time():
             return "login_required"
     try:
+        if get is requests.get and RateLimiter().blocked():
+            return "rate_limited"
         fetch = trakt_get if get is requests.get else get
         response = fetch(
             "https://api.trakt.tv/users/settings",
@@ -37,6 +40,8 @@ def validate(data, get=requests.get):
             timeout=20,
             allow_redirects=False,
         )
+        if response.status_code == 429:
+            return "rate_limited"
         if response.status_code == 401:
             return "login_required"
         if response.status_code == 200 and response.json().get("user", {}).get("username"):
@@ -63,7 +68,7 @@ class TokenMonitor:
         if status == "healthy":
             ready.touch(mode=0o600)
             self.alerts.update(False)
-        else:
+        elif status != "rate_limited":
             ready.unlink(missing_ok=True)
             if status == "login_required":
                 self.alerts.update(True)

@@ -123,3 +123,23 @@ PlexTraktSync and the port 8090 feed builder while preserving browser/session lo
 Optional app-scoped WireGuard transport and local Docker setup are documented in
 [../vpn-helper/README.md](../vpn-helper/README.md). VPN routing is independent of
 the browser/session and PKCE authentication methods and disabled by default.
+
+### Shared Trakt request limits
+
+Trakt API requests are paced automatically, whether VPN routing is enabled or not.
+Sync, watch, the feed builder, OAuth requests and the dedicated browser share
+`trakt-rate-limit.sqlite` in the configuration directory. Use the same mounted
+configuration directory for processes that should share an allowance.
+
+Reads are spaced at least 0.75 seconds apart (about 400 per five minutes), with an
+additional rolling cap of 450. Writes are spaced at least 1.1 seconds apart.
+A 429 pauses all Trakt requests for the full `Retry-After`; missing headers use
+exponential backoff with jitter. Authentication checks pause during that cooldown
+and preserve a previously validated login. Existing cached results need no request.
+Other applications using the same Trakt account still share Trakt's server-side
+allowance, so these controls cannot guarantee that the account never receives 429.
+
+VPN failover handles transport failures, not rate limits. It does not reset an
+account's allowance. A healthy auto-mode gateway normally reports `route: direct`;
+`route: vpn` appears after repeated connection failures. The gateway keeps its
+proxy/control listeners bound to Docker's interface, with no host ports published.

@@ -15,7 +15,7 @@ from token_monitor import TokenMonitor, validate
 
 @pytest.mark.parametrize('status,expected', [
     (200,'healthy'),(401,'login_required'),(403,'unavailable'),
-    (429,'unavailable'),(500,'unavailable'),(302,'unavailable'),
+    (429,'rate_limited'),(500,'unavailable'),(302,'unavailable'),
 ])
 def test_statuses(status, expected):
     response = SimpleNamespace(status_code=status, json=lambda: {'user': {'username': 'test'}})
@@ -48,3 +48,15 @@ def test_monitor_expiry_and_recovery(tmp_path):
     alert.update.assert_called_with(False)
     assert (tmp_path/'auth-ready').exists()
     assert 'private' not in (tmp_path/'auth-status.json').read_text()
+
+
+def test_throttle_preserves_previously_validated_login(tmp_path):
+    token = tmp_path / "token.json"
+    token.write_text('{"access_token":"test","client_id":"key"}')
+    (tmp_path / "auth-ready").touch()
+    response = Mock(status_code=429)
+    alerts = Mock()
+    monitor = TokenMonitor(token, tmp_path, alerts, get=lambda *a, **k: response)
+    assert monitor.check() == "rate_limited"
+    assert (tmp_path / "auth-ready").exists()
+    alerts.update.assert_not_called()
