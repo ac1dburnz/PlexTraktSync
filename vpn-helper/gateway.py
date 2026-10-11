@@ -56,7 +56,7 @@ def probe(vpn=False):
             stream.sendall(b"HEAD / HTTP/1.1\r\nHost: api.trakt.tv\r\nConnection: close\r\n\r\n")
             line = stream.recv(512).split(b"\r\n", 1)[0]
             status = int(line.split()[1])
-            return status < 500 and status != 429
+            return status < 500  # An HTTP rate limit is not a failed tunnel.
     except (OSError, ValueError, IndexError):
         return False
 
@@ -160,7 +160,15 @@ class Controller:
             try:
                 self.backend.stop()
                 self.backend.start(self.index)
-                if not self.check(True):
+                # Give a fresh handshake a bounded chance to settle before
+                # discarding the tunnel. These are transport probes, not retries
+                # of an application's API write.
+                for attempt in range(3):
+                    if self.check(True):
+                        break
+                    if attempt < 2:
+                        time.sleep(1)
+                else:
                     raise RuntimeError("VPN health check failed.")
                 self.route, self.error = "vpn", None
                 self.failures, self.health_failures = 0, 0
@@ -334,6 +342,13 @@ class Control(BaseHTTPRequestHandler):
             self.reply({"error": "Not found"}, 404)
 
 
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # Accept Docker traffic only; listeners must not accept VPN-interface input.
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, b"eth0\0")
+        super().server_bind()
+
+
 def main():
     controller = Controller(
         WireGuard(os.getenv("VPN_CONFIG_DIR", "/wireguard")),
@@ -343,7 +358,7 @@ def main():
         health_interval=int(os.getenv("VPN_HEALTH_INTERVAL", "30")),
         mode=os.getenv("VPN_MODE", "auto"),
     )
-    servers = [ThreadingHTTPServer(("0.0.0.0", 8080), Proxy), ThreadingHTTPServer(("0.0.0.0", 9090), Control)]
+    servers = [LocalHTTPServer(("0.0.0.0", 8080), Proxy), LocalHTTPServer(("0.0.0.0", 9090), Control)]
     for server in servers:
         server.controller = controller
         threading.Thread(target=server.serve_forever, daemon=True).start()
