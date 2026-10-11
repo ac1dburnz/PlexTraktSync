@@ -6,14 +6,19 @@ import pytest
 import requests
 from requests.adapters import HTTPAdapter
 
-from plextraktsync.trakt.TraktTransport import TraktAdapter, configure
+from plextraktsync.trakt.TraktTransport import PacedAdapter, TraktAdapter, configure
 
 
-def test_disabled_is_unchanged():
+@pytest.fixture(autouse=True)
+def no_real_pacing(monkeypatch):
+    monkeypatch.setattr("plextraktsync.trakt.TraktTransport.RateLimiter", Mock)
+
+
+def test_disabled_still_paces_without_proxy():
     session = requests.Session()
-    adapter = session.get_adapter("https://api.trakt.tv/test")
     assert configure(session, {}) is session
-    assert session.get_adapter("https://api.trakt.tv/test") is adapter
+    assert isinstance(session.get_adapter("https://api.trakt.tv/test"), PacedAdapter)
+    assert not isinstance(session.get_adapter("https://api.trakt.tv/test"), TraktAdapter)
 
 
 def test_only_trakt_endpoints_use_proxy():

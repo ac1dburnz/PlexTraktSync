@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -181,3 +181,22 @@ def test_crash_guard_is_kept_when_interface_stops(tmp_path, monkeypatch):
     commands.clear()
     backend.stop()
     assert not any("rule" in args or "flush" in args for args in commands)
+
+
+def test_rate_limited_health_probe_does_not_rotate_tunnel(monkeypatch):
+    stream = MagicMock()
+    stream.recv.return_value = b"HTTP/1.1 429 Too Many Requests\r\n"
+    context = MagicMock()
+    context.wrap_socket.return_value.__enter__.return_value = stream
+    monkeypatch.setattr(gateway, "connect", Mock())
+    monkeypatch.setattr(gateway.ssl, "create_default_context", lambda: context)
+    assert gateway.probe(True)
+
+
+def test_startup_tolerates_transient_handshake_failure(lab, monkeypatch):
+    controller, backend, _now, _healthy = lab
+    controller.check = Mock(side_effect=[False, False, True])
+    monkeypatch.setattr(gateway.time, "sleep", lambda _: None)
+    assert controller.activate()
+    assert controller.status()["route"] == "vpn"
+    assert backend.starts == [0]

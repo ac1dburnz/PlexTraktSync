@@ -9,19 +9,21 @@ import time
 
 D = os.getenv("DOCKER_BIN", "docker")
 C = os.environ["VPN_TEST_CONTAINER"]
+CLIENT = os.environ["VPN_TEST_CLIENT"]
 
 
 def control(path, reason=None):
-    code = "import urllib.request; print(urllib.request.urlopen(urllib.request.Request(" + repr("http://localhost:9090/" + path)
+    code = "import urllib.request; print(urllib.request.urlopen(urllib.request.Request(" + repr("http://" + C + ":9090/" + path)
     if reason is not None:
         code += ",data=" + repr(json.dumps({"reason": reason}).encode()) + ',headers={"Content-Type":"application/json"},method="POST"'
     code += "),timeout=45).read().decode())"
-    return json.loads(subprocess.check_output([D, "exec", C, "python", "-c", code], text=True))
+    return json.loads(subprocess.check_output([D, "exec", CLIENT, "python", "-c", code], text=True))
 
 
 assert control("status")["route"] == "direct"
 assert control("report", "connection")["route"] == "direct"
-assert control("report", "timeout")["route"] == "vpn"
+status = control("report", "timeout")
+assert status["route"] == "vpn", status
 print("Repeated network failures started London VPN", flush=True)
 subprocess.run([D, "exec", C, "ip", "link", "del", "ptsvpn"], check=True)
 # Verify the kernel rejects a marked connection rather than falling through direct.
