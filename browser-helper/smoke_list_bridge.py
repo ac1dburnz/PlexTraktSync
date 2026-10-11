@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from list_bridge import create_app
 from playwright.sync_api import expect, sync_playwright
@@ -23,8 +24,9 @@ def main():
                 return SimpleNamespace(status_code=200, headers={}, json=lambda: [{'name': 'Netflix'}])
             if '/lists/popular' in url:
                 return SimpleNamespace(status_code=200, headers={}, json=lambda: [{'list': {'name': 'Offline list', 'ids': {'trakt': 123}}}])
-            key = 'show' if '/shows/' in url else 'movie'
-            data = [{key: {'title': 'Offline fixture', 'network': 'Netflix', 'ids': {'tmdb': 42, 'tvdb': 123}}}]
+            key = 'show' if 'shows' in urlsplit(url).path.split('/') else 'movie'
+            item = {'title': 'Offline fixture', 'network': 'Netflix', 'ids': {'tmdb': 42, 'tvdb': 123}}
+            data = [item] if '/recommendations/' in url else [{key: item}]
             return SimpleNamespace(status_code=200, headers={}, json=lambda: data)
 
         secret = 'offline-test-secret-at-least-24-chars'
@@ -42,11 +44,19 @@ def main():
                 page.get_by_label('Bridge key', exact=True).fill(secret)
                 page.get_by_role('button', name='Connect', exact=True).click()
                 expect(page.locator('#builder')).to_be_visible()
-                for media, name, identifier in [('movies', 'weekly-movies', 'id'), ('shows', 'weekly-shows', 'tvdbId')]:
+                for media, name, identifier, source in [
+                    ('movies', 'weekly-movies', 'id', 'recommended'),
+                    ('shows', 'weekly-shows', 'tvdbId', 'recommended'),
+                    ('movies', 'personal-movies', 'id', 'recommendations'),
+                    ('shows', 'personal-shows', 'tvdbId', 'recommendations'),
+                ]:
                     page.locator('#media').select_option(media)
                     page.locator('#name').fill(name)
-                    page.locator('#source').select_option('recommended')
-                    page.get_by_role('button', name='Preview titles').click()
+                    page.locator('#source').select_option(source)
+                    with page.expect_response(lambda response: response.url.endswith('/api/preview/cards')) as preview:
+                        page.get_by_role('button', name='Preview titles').click()
+                    assert preview.value.status == 200
+                    assert preview.value.json()['media'] == media
                     expect(page.locator('#results')).to_contain_text('Offline fixture')
                     expect(page.locator('#results')).to_contain_text(identifier)
                     page.get_by_role('button', name='Save feed & get URL').click()
@@ -61,6 +71,7 @@ def main():
                 expect(page.locator('#networks')).to_have_value('Netflix')
                 page.locator('#days').fill('33')
                 page.locator('#networkSearch').fill('Netflix')
+                expect(page.get_by_role('button', name='Search networks', exact=True)).to_be_visible()
                 page.get_by_role('button', name='Search networks', exact=True).click()
                 expect(page.locator('#networkResults').get_by_role('button', name='Netflix', exact=True)).to_be_visible()
                 page.locator('#networkResults').get_by_role('button', name='Netflix', exact=True).click()
@@ -83,7 +94,7 @@ def main():
                 page.reload()
                 page.get_by_label('Bridge key', exact=True).fill(secret)
                 page.get_by_role('button', name='Connect', exact=True).click()
-                expect(page.locator('#saved option')).to_have_count(4)
+                expect(page.locator('#saved option')).to_have_count(6)
                 page.locator('#saved').select_option('weekly-movies')
                 expect(page.locator('#name')).to_have_value('weekly-movies')
                 assert not errors, errors
