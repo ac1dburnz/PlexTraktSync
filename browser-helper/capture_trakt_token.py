@@ -13,7 +13,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from alerts import SlackAlerts
+from requests.structures import CaseInsensitiveDict
 from token_monitor import TokenMonitor, validate
+
+from plextraktsync.trakt.RateLimiter import HOSTS, RateLimiter
 
 
 def save_token(path, token, client_id):
@@ -59,7 +62,21 @@ def main():
 
     monitor = TokenMonitor(args.output, args.profile.parent, alerts)
 
+    limiter = RateLimiter()
+
+    def pace(route):
+        request = route.request
+        if urlsplit(request.url).hostname in HOSTS:
+            limiter.acquire(request.method)
+        route.continue_()
+
     def capture(response):
+        if urlsplit(response.url).hostname in HOSTS:
+            class Result:
+                status_code = response.status
+                headers = CaseInsensitiveDict(response.all_headers())
+            limiter.observe(Result(), response.request.method, response.url,
+                            bool(response.request.all_headers().get("authorization")))
         if response.status != 200:
             return
         request = response.request
@@ -91,8 +108,10 @@ def main():
         context = playwright.chromium.launch_persistent_context(
             str(args.profile),
             proxy=proxy,
+            service_workers="block",
             headless=os.getenv("TRAKT_BROWSER_HEADLESS", "false").lower() == "true",
         )
+        context.route("**/*", pace)
         context.on("response", capture)
         page = context.pages[0] if context.pages else context.new_page()
         try:

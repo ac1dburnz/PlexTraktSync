@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import isfinite
+from random import uniform
 from time import sleep
 
 from click import ClickException
@@ -25,7 +27,12 @@ def rate_limit(fn, retries=5, *args, **kwargs):
                 logger.error(f"Last call: {fn.__module__}.{fn.__name__}({args[1:]}, {kwargs})")
                 raise ClickException("Trakt API didn't respond properly, script will abort now. Please try again later.")
 
-            seconds = e.retry_after
+            try:
+                seconds = float(e.response.headers["Retry-After"])
+                if not isfinite(seconds) or seconds < 0:
+                    raise ValueError()
+            except (KeyError, ValueError, TypeError):
+                seconds = min(300, 2 ** (retry + 1)) + uniform(0, 1)
             retry += 1
             logger.warning(f"{e} for {fn.__module__}.{fn.__name__}(), retrying after {seconds} seconds (try: {retry}/{retries})")
             logger.debug(e.details)

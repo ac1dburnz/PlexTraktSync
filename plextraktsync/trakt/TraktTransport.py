@@ -10,10 +10,24 @@ from urllib.parse import urlsplit
 import requests
 from requests.adapters import HTTPAdapter
 
+from plextraktsync.trakt.RateLimiter import RateLimiter
 
-class TraktAdapter(HTTPAdapter):
-    def __init__(self, proxy_url, control_url, report=None):
+
+class PacedAdapter(HTTPAdapter):
+    def __init__(self, limiter=None):
         super().__init__(max_retries=0)
+        self.limiter = limiter if limiter is not None else RateLimiter()
+
+    def send(self, request, **kwargs):
+        self.limiter.acquire(request.method)
+        response = super().send(request, **kwargs)
+        self.limiter.observe(response, request.method, request.url, bool(request.headers.get("Authorization")))
+        return response
+
+
+class TraktAdapter(PacedAdapter):
+    def __init__(self, proxy_url, control_url, report=None, limiter=None):
+        super().__init__(limiter=limiter)
         for url in (proxy_url, control_url):
             parsed = urlsplit(url)
             if parsed.scheme != "http" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
@@ -46,9 +60,10 @@ class TraktAdapter(HTTPAdapter):
 
 def configure(session, env=None):
     env = os.environ if env is None else env
-    if env.get("TRAKT_VPN_ENABLED", "false").lower() != "true":
-        return session
-    adapter = TraktAdapter(env.get("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080"), env.get("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090"))
+    adapter = (
+        TraktAdapter(env.get("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080"), env.get("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090"))
+        if env.get("TRAKT_VPN_ENABLED", "false").lower() == "true" else PacedAdapter()
+    )
     for host in ("api.trakt.tv", "apiz.trakt.tv", "auth.trakt.tv"):
         session.mount("https://" + host + "/", adapter)
     return session
