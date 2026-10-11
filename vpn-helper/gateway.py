@@ -1,4 +1,5 @@
 """App-scoped CONNECT proxy with optional WireGuard transport and recovery."""
+
 from __future__ import annotations
 
 import configparser
@@ -12,6 +13,7 @@ import ssl
 import subprocess
 import threading
 import time
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -61,6 +63,7 @@ def probe(vpn=False):
 
 class WireGuard:
     """Only the gateway container's marked sockets enter the tunnel."""
+
     def __init__(self, directory):
         self.profiles = sorted(Path(directory).glob("*.conf"))
         self.path = Path("/etc/wireguard") / (INTERFACE + ".conf")
@@ -76,8 +79,10 @@ class WireGuard:
         if set(parser.sections()) != {"Interface", "Peer"}:
             raise RuntimeError("A WireGuard profile must contain one Interface and one Peer.")
         # Do not execute wg-quick hooks or rewrite container DNS from a profile.
-        allowed = {"Interface": {"PrivateKey", "Address", "ListenPort", "MTU", "DNS"},
-                   "Peer": {"PublicKey", "PresharedKey", "AllowedIPs", "Endpoint", "PersistentKeepalive"}}
+        allowed = {
+            "Interface": {"PrivateKey", "Address", "ListenPort", "MTU", "DNS"},
+            "Peer": {"PublicKey", "PresharedKey", "AllowedIPs", "Endpoint", "PersistentKeepalive"},
+        }
         if any(set(parser[section]) - allowed[section] for section in parser.sections()):
             raise RuntimeError("Unsupported WireGuard fields or executable hooks in profile.")
         if "0.0.0.0/0" not in [value.strip() for value in parser.get("Peer", "AllowedIPs", fallback="").split(",")]:
@@ -108,8 +113,7 @@ class WireGuard:
 
 
 class Controller:
-    def __init__(self, backend, check=probe, clock=time.monotonic, threshold=3, cooldown=120,
-                 recovery_interval=900, health_interval=30, mode="auto"):
+    def __init__(self, backend, check=probe, clock=time.monotonic, threshold=3, cooldown=120, recovery_interval=900, health_interval=30, mode="auto"):
         if mode not in ("auto", "always") or threshold < 1 or cooldown < 1 or recovery_interval < 30 or health_interval < 1:
             raise ValueError("Invalid VPN configuration.")
         self.backend, self.check, self.clock = backend, check, clock
@@ -127,16 +131,20 @@ class Controller:
         self.generation += 1
         for pair in list(self.tunnels):
             for stream in pair:
-                try:
+                with suppress(OSError):
                     stream.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
         self.tunnels.clear()
 
     def status(self):
         with self.lock:
-            return {"mode": self.mode, "route": self.route, "profile": self.index + 1 if self.index >= 0 else None,
-                    "profiles": len(self.backend.profiles), "failures": self.failures, "error": self.error}
+            return {
+                "mode": self.mode,
+                "route": self.route,
+                "profile": self.index + 1 if self.index >= 0 else None,
+                "profiles": len(self.backend.profiles),
+                "failures": self.failures,
+                "error": self.error,
+            }
 
     def activate(self):
         with self.lock:
@@ -159,10 +167,8 @@ class Controller:
                 print("VPN transport healthy; profile " + str(self.index + 1), flush=True)
                 return True
             except Exception:
-                try:
+                with suppress(Exception):
                     self.backend.stop()
-                except Exception:
-                    pass
                 self.error = "VPN startup or health check failed."
                 # Preserve a working direct path only if we were already direct.
                 if previous_route == "direct" and self.check(False):
@@ -229,6 +235,7 @@ class Controller:
 
 class Proxy(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+
     def log_message(self, *args):
         pass
 
@@ -328,10 +335,14 @@ class Control(BaseHTTPRequestHandler):
 
 
 def main():
-    controller = Controller(WireGuard(os.getenv("VPN_CONFIG_DIR", "/wireguard")),
-        threshold=int(os.getenv("VPN_FAILURE_THRESHOLD", "3")), cooldown=int(os.getenv("VPN_SWITCH_COOLDOWN", "120")),
-        recovery_interval=int(os.getenv("VPN_RECOVERY_INTERVAL", "900")), health_interval=int(os.getenv("VPN_HEALTH_INTERVAL", "30")),
-        mode=os.getenv("VPN_MODE", "auto"))
+    controller = Controller(
+        WireGuard(os.getenv("VPN_CONFIG_DIR", "/wireguard")),
+        threshold=int(os.getenv("VPN_FAILURE_THRESHOLD", "3")),
+        cooldown=int(os.getenv("VPN_SWITCH_COOLDOWN", "120")),
+        recovery_interval=int(os.getenv("VPN_RECOVERY_INTERVAL", "900")),
+        health_interval=int(os.getenv("VPN_HEALTH_INTERVAL", "30")),
+        mode=os.getenv("VPN_MODE", "auto"),
+    )
     servers = [ThreadingHTTPServer(("0.0.0.0", 8080), Proxy), ThreadingHTTPServer(("0.0.0.0", 9090), Control)]
     for server in servers:
         server.controller = controller

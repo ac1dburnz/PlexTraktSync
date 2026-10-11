@@ -1,4 +1,7 @@
 """Check the local Docker UI without authorizing or changing a Trakt account."""
+
+from __future__ import annotations
+
 import json
 import os
 from urllib.parse import parse_qs, urlsplit
@@ -24,9 +27,11 @@ with sync_playwright() as p:
     page.locator("#useAuth").click()
     expect(page.locator("#status")).to_contain_text("Authentication method saved")
     authorization = []
+
     def capture(route):
         authorization.append(route.request.url)
         route.fulfill(status=200, content_type="text/html", body="<p>Authorization link captured for local test.</p>")
+
     page.route("https://auth.trakt.tv/**", capture)
     page.locator("#connectPkce").click()
     page.wait_for_url("https://auth.trakt.tv/**")
@@ -47,6 +52,15 @@ with sync_playwright() as p:
     response = page.request.post(base + "/api/auth/pkce/start", data={})
     assert response.status == 403
     browser.close()
-print(json.dumps({"ui_connected": True, "method_switch_errors_handled": True,
-                  "browser_method_preserved": True, "pkce_link_valid": True,
-                  "invalid_callback_rejected": True, "start_requires_bridge_key": True}))
+print(
+    json.dumps(
+        {
+            "ui_connected": True,
+            "method_switch_errors_handled": True,
+            "browser_method_preserved": True,
+            "pkce_link_valid": True,
+            "invalid_callback_rejected": True,
+            "start_requires_bridge_key": True,
+        }
+    )
+)

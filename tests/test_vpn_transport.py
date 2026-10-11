@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from unittest.mock import Mock
 
 import pytest
@@ -22,12 +24,16 @@ def test_only_trakt_endpoints_use_proxy():
         assert not isinstance(session.get_adapter(url), TraktAdapter)
 
 
-@pytest.mark.parametrize("code,reason", [(200, "success"), (401, None), (403, None), (420, None), (429, None), (502, "gateway"), (503, "gateway"), (504, "gateway")])
+@pytest.mark.parametrize(
+    "code,reason", [(200, "success"), (401, None), (403, None), (420, None), (429, None), (502, "gateway"), (503, "gateway"), (504, "gateway")]
+)
 @pytest.mark.parametrize("token", ["browser-session", "pkce-access"])
 def test_auth_independent_reporting_without_request_replay(monkeypatch, code, reason, token):
     report = Mock()
     adapter = TraktAdapter("http://gateway:8080", "http://gateway:9090", report=report)
-    request = requests.Request("POST", "https://api.trakt.tv/sync/history", headers={"Authorization": "Bearer " + token}, json={"movies": []}).prepare()
+    request = requests.Request(
+        "POST", "https://api.trakt.tv/sync/history", headers={"Authorization": "Bearer " + token}, json={"movies": []}
+    ).prepare()
     response = requests.Response()
     response.status_code = code
     send = Mock(return_value=response)

@@ -1,9 +1,10 @@
 """PKCE credentials shared by the CLI and list bridge, alongside browser login."""
+
 from __future__ import annotations
 
 import base64
-import ipaddress
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -18,7 +19,6 @@ import requests
 from click import ClickException
 
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
-
 
 
 def save_json(path, data):
@@ -44,12 +44,14 @@ def locked(path):
     with os.fdopen(fd, "w") as handle:
         if os.name == "nt":
             import msvcrt
+
             handle.write("0")
             handle.flush()
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
         else:
             import fcntl
+
             fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
@@ -73,6 +75,7 @@ class PkceAuth(BrowserTokenAuth):
     def __init__(self, path, post=None):
         super().__init__(path)
         from plextraktsync.trakt.TraktTransport import post as trakt_post
+
         self.post = post or trakt_post
 
     def exchange(self, payload):
@@ -88,8 +91,13 @@ class PkceAuth(BrowserTokenAuth):
             created = data.get("created_at", time.time())
             if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in (expires, created)) or expires <= 60:
                 raise ValueError()
-            return {"access_token": data["access_token"], "refresh_token": data["refresh_token"],
-                    "expires_at": created + expires, "client_id": payload["client_id"], "redirect_uri": payload["redirect_uri"]}
+            return {
+                "access_token": data["access_token"],
+                "refresh_token": data["refresh_token"],
+                "expires_at": created + expires,
+                "client_id": payload["client_id"],
+                "redirect_uri": payload["redirect_uri"],
+            }
         except (requests.RequestException, ValueError, KeyError, TypeError):
             raise ClickException("Trakt token exchange could not be completed. Try connecting again.") from None
 
@@ -106,8 +114,14 @@ class PkceAuth(BrowserTokenAuth):
             except (ValueError, KeyError, TypeError):
                 raise ClickException("PKCE credentials are invalid. Connect Trakt again.") from None
             if expires <= time.time() + 60:
-                data = self.exchange({"grant_type": "refresh_token", "refresh_token": data["refresh_token"],
-                                      "client_id": data["client_id"], "redirect_uri": data["redirect_uri"]})
+                data = self.exchange(
+                    {
+                        "grant_type": "refresh_token",
+                        "refresh_token": data["refresh_token"],
+                        "client_id": data["client_id"],
+                        "redirect_uri": data["redirect_uri"],
+                    }
+                )
                 save_json(self.path, data)
             return data
 
@@ -122,6 +136,7 @@ class PkceAuth(BrowserTokenAuth):
 
 class TraktAuth(BrowserTokenAuth):
     """Select credentials per request; never silently switch accounts on failure."""
+
     def __init__(self, browser_file, config_dir, post=None):
         self.browser = BrowserTokenAuth(browser_file)
         self.pkce = PkceAuth(Path(config_dir) / "trakt-pkce.json", post)
@@ -153,9 +168,15 @@ class TraktAuth(BrowserTokenAuth):
         local = uri.hostname == "localhost"
         try:
             address = ipaddress.ip_address(uri.hostname or "")
-            local = address.is_loopback or any(address in network for network in (
-                ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("172.16.0.0/12"),
-                ipaddress.ip_network("192.168.0.0/16"), ipaddress.ip_network("fc00::/7")))
+            local = address.is_loopback or any(
+                address in network
+                for network in (
+                    ipaddress.ip_network("10.0.0.0/8"),
+                    ipaddress.ip_network("172.16.0.0/12"),
+                    ipaddress.ip_network("192.168.0.0/16"),
+                    ipaddress.ip_network("fc00::/7"),
+                )
+            )
         except ValueError:
             pass
         valid_scheme = uri.scheme == "https" or (allow_local_http and uri.scheme == "http" and local)
@@ -166,20 +187,35 @@ class TraktAuth(BrowserTokenAuth):
         verifier, state = secrets.token_urlsafe(64), secrets.token_urlsafe(32)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
         with locked(self.pending):
-            save_json(self.pending, {"verifier": verifier, "state": state, "client_id": client_id,
-                                     "redirect_uri": redirect_uri, "expires_at": time.time() + 600})
-        return "https://auth.trakt.tv/oauth/authorize?" + urlencode({"response_type": "code", "client_id": client_id,
-            "redirect_uri": redirect_uri, "state": state, "code_challenge": challenge, "code_challenge_method": "S256"})
+            save_json(
+                self.pending,
+                {"verifier": verifier, "state": state, "client_id": client_id, "redirect_uri": redirect_uri, "expires_at": time.time() + 600},
+            )
+        return "https://auth.trakt.tv/oauth/authorize?" + urlencode(
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+            }
+        )
 
     def finish(self, code, state):
         with locked(self.pending):
             pending = load_json(self.pending)
             expected_state = pending.get("state")
             expires = pending.get("expires_at")
-            if (not isinstance(state, str) or not isinstance(expected_state, str)
-                    or not secrets.compare_digest(state, expected_state)
-                    or isinstance(expires, bool) or not isinstance(expires, (int, float))
-                    or not math.isfinite(expires) or expires <= time.time()):
+            if (
+                not isinstance(state, str)
+                or not isinstance(expected_state, str)
+                or not secrets.compare_digest(state, expected_state)
+                or isinstance(expires, bool)
+                or not isinstance(expires, (int, float))
+                or not math.isfinite(expires)
+                or expires <= time.time()
+            ):
                 raise ClickException("Invalid or expired PKCE state. Start a new connection.")
             if any(not isinstance(pending.get(key), str) or not pending[key] for key in ("verifier", "client_id", "redirect_uri")):
                 raise ClickException("Invalid PKCE login configuration. Start a new connection.")
@@ -187,7 +223,14 @@ class TraktAuth(BrowserTokenAuth):
                 raise ClickException("Missing authorization code.")
             self.pending.unlink()  # One attempt per authorization, including failures.
             with locked(self.pkce.path):
-                data = self.pkce.exchange({"grant_type": "authorization_code", "code": code,
-                    "code_verifier": pending["verifier"], "client_id": pending["client_id"], "redirect_uri": pending["redirect_uri"]})
+                data = self.pkce.exchange(
+                    {
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "code_verifier": pending["verifier"],
+                        "client_id": pending["client_id"],
+                        "redirect_uri": pending["redirect_uri"],
+                    }
+                )
                 save_json(self.pkce.path, data)
             save_json(self.settings, {"method": "pkce"})

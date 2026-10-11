@@ -19,8 +19,6 @@ from flask import Flask, jsonify, request, send_file
 from plextraktsync.trakt.ArrImport import ArrImport, PreviewStore
 from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
 from plextraktsync.trakt.LibraryExclusions import LibraryExclusions
-from plextraktsync.trakt.PkceAuth import TraktAuth
-from plextraktsync.trakt.TraktTransport import get as trakt_get
 from plextraktsync.trakt.ListPreview import cards
 from plextraktsync.trakt.ListSources import (
     FILTERS,
@@ -35,7 +33,9 @@ from plextraktsync.trakt.ListSources import (
     select_items,
     validate_feed,
 )
+from plextraktsync.trakt.PkceAuth import TraktAuth
 from plextraktsync.trakt.PosterLookup import PosterLookup
+from plextraktsync.trakt.TraktTransport import get as trakt_get
 
 
 def convert(items, media):
@@ -247,7 +247,12 @@ class TraktFeeds:
                         self.cache.clear()
                     self.cache[catalog_key] = (self.clock(), networks)
                 matches = [entry for entry in networks if query.strip().casefold() in entry["name"].casefold()]
-                return {"items": matches[(page - 1) * 20:page * 20], "page": page, "pages": max(1, (len(matches) + 19) // 20), "total": len(matches)}
+                return {
+                    "items": matches[(page - 1) * 20 : page * 20],
+                    "page": page,
+                    "pages": max(1, (len(matches) + 19) // 20),
+                    "total": len(matches),
+                }
             data, pages = self.request(paths[kind], {"page": page, "limit": 20, **({"query": query} if query else {})}, self.clock() + 30)
             if not isinstance(data, list):
                 # Certifications are grouped by country.
@@ -287,7 +292,9 @@ class TraktFeeds:
             return result
 
 
-def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None, posters=None, pkce_redirect_uri=None, auth_post=None, allow_local_http=None):
+def create_app(
+    config_dir, token_file, secret, get=requests.get, ttl=3600, arr=None, posters=None, pkce_redirect_uri=None, auth_post=None, allow_local_http=None
+):
     if not secret or len(secret) < 24 or not secret.isascii():
         raise ValueError("LIST_BRIDGE_SECRET must contain at least 24 ASCII characters.")
     app = Flask(__name__)
@@ -344,7 +351,9 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=N
         if os.getenv("TRAKT_VPN_ENABLED", "false").lower() != "true":
             return jsonify(enabled=False)
         try:
-            response = requests.get(os.getenv("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090").rstrip("/") + "/status", timeout=2, allow_redirects=False)
+            response = requests.get(
+                os.getenv("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090").rstrip("/") + "/status", timeout=2, allow_redirects=False
+            )
             response.raise_for_status()
             return jsonify(enabled=True, **response.json())
         except (requests.RequestException, ValueError, TypeError):
@@ -352,7 +361,9 @@ def create_app(config_dir, token_file, secret, get=requests.get, ttl=3600, arr=N
 
     @app.get("/api/auth")
     def auth_status():
-        return jsonify(method=auth.method(), pkce_connected=auth.pkce.path.exists(), pkce_configured=bool(callback_uri and os.getenv("TRAKT_PKCE_CLIENT_ID")))
+        return jsonify(
+            method=auth.method(), pkce_connected=auth.pkce.path.exists(), pkce_configured=bool(callback_uri and os.getenv("TRAKT_PKCE_CLIENT_ID"))
+        )
 
     @app.post("/api/auth/method")
     def auth_method():

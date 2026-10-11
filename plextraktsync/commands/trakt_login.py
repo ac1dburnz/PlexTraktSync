@@ -46,6 +46,7 @@ def trakt_authenticate(api: TraktApi):
 
 def has_trakt_token():
     from pathlib import Path
+
     token_file = factory.config["TRAKT_BROWSER_TOKEN_FILE"]
     if token_file or (Path(config_dir) / "trakt-auth.json").exists():
         from plextraktsync.trakt.PkceAuth import TraktAuth
@@ -71,18 +72,21 @@ def trakt_login(method=None, redirect_uri=None, allow_local_http=False):
     if method:
         from pathlib import Path
         from urllib.parse import parse_qs, urlsplit
+
         from plextraktsync.trakt.PkceAuth import TraktAuth
 
         auth = TraktAuth(factory.config["TRAKT_BROWSER_TOKEN_FILE"] or Path(config_dir) / "browser-token.json", config_dir)
         if method == "pkce":
             if not redirect_uri:
                 from click import ClickException
+
                 raise ClickException("Provide --redirect-uri with the callback registered for your Trakt app.")
             factory.print(auth.start(redirect_uri, allow_local_http=allow_local_http))
             callback = Prompt.ask("Open that URL, approve your Trakt app, then paste the complete callback URL")
             actual, expected = urlsplit(callback), urlsplit(redirect_uri)
             if (actual.scheme, actual.netloc, actual.path) != (expected.scheme, expected.netloc, expected.path):
                 from click import ClickException
+
                 raise ClickException("Callback URL does not match the registered redirect.")
             params = parse_qs(actual.query)
             auth.finish(params.get("code", [""])[0], params.get("state", [""])[0])

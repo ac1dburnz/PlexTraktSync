@@ -1,8 +1,10 @@
 """Optional Trakt-only VPN proxy, independent of the selected authentication."""
+
 from __future__ import annotations
 
 import os
 import threading
+from contextlib import suppress
 from urllib.parse import urlsplit
 
 import requests
@@ -21,10 +23,8 @@ class TraktAdapter(HTTPAdapter):
 
     def _report(self, reason):
         # Do not include paths, tokens, bodies or headers in transport reports.
-        try:
+        with suppress(requests.RequestException):
             requests.post(self.control_url + "/report", json={"reason": reason}, timeout=1, allow_redirects=False)
-        except requests.RequestException:
-            pass
 
     def send(self, request, **kwargs):
         kwargs["proxies"] = {"https": self.proxy_url}
@@ -48,8 +48,7 @@ def configure(session, env=None):
     env = os.environ if env is None else env
     if env.get("TRAKT_VPN_ENABLED", "false").lower() != "true":
         return session
-    adapter = TraktAdapter(env.get("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080"),
-                           env.get("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090"))
+    adapter = TraktAdapter(env.get("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080"), env.get("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090"))
     for host in ("api.trakt.tv", "apiz.trakt.tv", "auth.trakt.tv"):
         session.mount("https://" + host + "/", adapter)
     return session

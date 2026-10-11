@@ -1,4 +1,5 @@
 """PKCE behavior tests; also runnable directly without the wider pytest suite."""
+
 from __future__ import annotations
 
 import base64
@@ -29,6 +30,7 @@ CALLBACK = "http://192.168.1.100:8090/oauth/callback"
 class PkceTests(unittest.TestCase):
     def setUp(self):
         from unittest.mock import patch
+
         client_env = patch.dict(os.environ, {"TRAKT_PKCE_CLIENT_ID": "test-pkce-client-id"})
         client_env.start()
         self.addCleanup(client_env.stop)
@@ -42,8 +44,10 @@ class PkceTests(unittest.TestCase):
 
     def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
-        return SimpleNamespace(status_code=200, json=lambda: {
-            "access_token": "pkce-token", "refresh_token": "rotated-refresh", "expires_in": 604800, "created_at": time.time()})
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {"access_token": "pkce-token", "refresh_token": "rotated-refresh", "expires_in": 604800, "created_at": time.time()},
+        )
 
     def connect(self):
         url = self.auth.start(CALLBACK, allow_local_http=True)
@@ -92,7 +96,12 @@ class PkceTests(unittest.TestCase):
     def test_http_requires_explicit_local_opt_in(self):
         with self.assertRaises(ClickException):
             self.auth.start(CALLBACK)
-        for uri in ("http://example.com/oauth/callback", "urn:ietf:wg:oauth:2.0:oob", "https://example.com/callback?code=x", "https://user:pass@example.com/callback"):
+        for uri in (
+            "http://example.com/oauth/callback",
+            "urn:ietf:wg:oauth:2.0:oob",
+            "https://example.com/callback?code=x",
+            "https://user:pass@example.com/callback",
+        ):
             with self.assertRaises(ClickException):
                 self.auth.start(uri, allow_local_http=True)
         self.auth.start("https://example.com/oauth/callback")
@@ -141,8 +150,9 @@ class PkceTests(unittest.TestCase):
             PkceAuth.check_response(response)
 
     def app(self, **kwargs):
-        return bridge.create_app(self.root, self.browser, SECRET, pkce_redirect_uri=CALLBACK,
-                                 auth_post=self.post, allow_local_http=True, **kwargs).test_client()
+        return bridge.create_app(
+            self.root, self.browser, SECRET, pkce_redirect_uri=CALLBACK, auth_post=self.post, allow_local_http=True, **kwargs
+        ).test_client()
 
     def test_bridge_protects_selection_and_start_but_accepts_valid_callback(self):
         client = self.app()
@@ -164,11 +174,12 @@ class PkceTests(unittest.TestCase):
 
     def test_feeds_use_both_methods_and_keep_saved_feeds(self):
         used = []
+
         def get(url, **kwargs):
             prepared = Request("GET", url, auth=kwargs["auth"]).prepare()
             used.append(prepared.headers["Authorization"])
-            return SimpleNamespace(status_code=200, headers={}, json=lambda: [
-                {"movie": {"title": "Example", "ids": {"tmdb": 42}}}])
+            return SimpleNamespace(status_code=200, headers={}, json=lambda: [{"movie": {"title": "Example", "ids": {"tmdb": 42}}}])
+
         client = self.app(get=get)
         headers = {"X-Bridge-Key": SECRET}
         feed = {"name": "test-feed", "media": "movies", "source": "trending", "limit": 10}
@@ -179,10 +190,10 @@ class PkceTests(unittest.TestCase):
             self.assertEqual(result.status_code, 200, result.json)
         self.assertEqual(used, ["Bearer session-token", "Bearer pkce-token"])
 
-
     def test_browser_capture_updates_do_not_overwrite_pkce(self):
         import sys
         from unittest.mock import patch
+
         with patch.object(sys, "path", [str(Path(__file__).parents[1] / "browser-helper"), *sys.path]):
             from capture_trakt_token import save_token
         self.connect()
@@ -241,8 +252,12 @@ class PkceTests(unittest.TestCase):
     def test_shared_selection_survives_new_process_and_restart(self):
         import subprocess
         import sys
+
         self.connect()
-        code = "from plextraktsync.trakt.PkceAuth import TraktAuth;import sys;a=TraktAuth(sys.argv[1],sys.argv[2]);print(a.method(),a.read()['access_token'])"
+        code = (
+            "from plextraktsync.trakt.PkceAuth import TraktAuth;import sys;"
+            "a=TraktAuth(sys.argv[1],sys.argv[2]);print(a.method(),a.read()['access_token'])"
+        )
         for method, token in (("pkce", "pkce-token"), ("browser", "session-token"), ("pkce", "pkce-token")):
             self.auth.select(method)
             result = subprocess.run([sys.executable, "-c", code, str(self.browser), str(self.root)], capture_output=True, text=True, check=True)
@@ -250,17 +265,21 @@ class PkceTests(unittest.TestCase):
 
     def test_refresh_serializes_across_processes(self):
         import multiprocessing
+
         self.connect()
         data = json.loads(self.auth.pkce.path.read_text())
         data["expires_at"] = 1
         save_json(self.auth.pkce.path, data)
         calls = self.root / "refresh-calls"
+
         def worker():
             def post(url, **kwargs):
                 with calls.open("a") as handle:
                     handle.write("refresh\n")
                 return self.post(url, **kwargs)
+
             PkceAuth(self.auth.pkce.path, post=post).read()
+
         context = multiprocessing.get_context("fork")
         processes = [context.Process(target=worker) for _ in range(6)]
         for process in processes:
@@ -286,11 +305,15 @@ class PkceTests(unittest.TestCase):
 
     def test_sync_engine_uses_selected_credentials_for_reads_and_writes(self):
         from unittest.mock import patch
+
+        import trakt.core
         from requests import Session
         from requests.adapters import BaseAdapter
-        import trakt.core
+
         from plextraktsync.trakt.TraktApi import TraktApi
+
         sent = []
+
         class Adapter(BaseAdapter):
             def send(self, request, **kwargs):
                 sent.append((request.method, request.headers["Authorization"]))
@@ -299,8 +322,10 @@ class PkceTests(unittest.TestCase):
                 response._content = b"{}"
                 response.request = request
                 return response
+
             def close(self):
                 pass
+
         self.connect()
         session = Session()
         session.mount("https://", Adapter())
@@ -321,7 +346,9 @@ class PkceTests(unittest.TestCase):
 
     def test_legacy_device_login_still_uses_its_own_credentials(self):
         from unittest.mock import patch
+
         from plextraktsync.trakt.TraktApi import TraktApi
+
         with patch("trakt.init", return_value="legacy-success") as init:
             self.assertEqual(TraktApi.device_auth("old-client", "old-secret"), "legacy-success")
             init.assert_called_once_with(client_id="old-client", client_secret="old-secret", store=True)
@@ -340,12 +367,18 @@ class PkceTests(unittest.TestCase):
                     raw.update({k: examples[k] for k in spec["fields"] if bridge.OPTIONS[k].get("required")})
                     feed = bridge.validate_feed(raw)
                     seen = []
-                    def get(url, **kwargs):
+
+                    def get(url, seen=seen, media=media, source=source, **kwargs):
                         prepared = Request("GET", url, auth=kwargs["auth"]).prepare()
                         seen.append(prepared.headers["Authorization"])
-                        item = {"movie": {"title": "Movie", "ids": {"tmdb": 42}}} if media == "movies" else {"show": {"title": "Show", "ids": {"tvdb": 42}}}
+                        item = (
+                            {"movie": {"title": "Movie", "ids": {"tmdb": 42}}}
+                            if media == "movies"
+                            else {"show": {"title": "Show", "ids": {"tvdb": 42}}}
+                        )
                         data = [item]
                         return SimpleNamespace(status_code=200, headers={}, json=lambda: {"cast": data, "crew": {}} if source == "credits" else data)
+
                     client = self.app(get=get, ttl=0)
                     for method, token in (("browser", "session-token"), ("pkce", "pkce-token"), ("browser", "session-token")):
                         result = client.post("/api/auth/method", json={"method": method}, headers=headers)

@@ -1,4 +1,5 @@
 """Read-only authentication checks, separated from browser event handling."""
+
 from __future__ import annotations
 
 import json
@@ -24,11 +25,18 @@ def validate(data, get=requests.get):
             return "login_required"
     try:
         fetch = trakt_get if get is requests.get else get
-        response = fetch("https://api.trakt.tv/users/settings", headers={
-            "Authorization": "Bearer " + data["access_token"],
-            "trakt-api-key": data["client_id"], "trakt-api-version": "2",
-            "User-Agent": "PlexTraktSync", "Accept": "application/json",
-        }, timeout=20, allow_redirects=False)
+        response = fetch(
+            "https://api.trakt.tv/users/settings",
+            headers={
+                "Authorization": "Bearer " + data["access_token"],
+                "trakt-api-key": data["client_id"],
+                "trakt-api-version": "2",
+                "User-Agent": "PlexTraktSync",
+                "Accept": "application/json",
+            },
+            timeout=20,
+            allow_redirects=False,
+        )
         if response.status_code == 401:
             return "login_required"
         if response.status_code == 200 and response.json().get("user", {}).get("username"):

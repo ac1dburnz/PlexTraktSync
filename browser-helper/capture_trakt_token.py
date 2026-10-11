@@ -1,4 +1,5 @@
 """Capture only Trakt API credentials from a dedicated, user-authenticated browser."""
+
 from __future__ import annotations
 
 import argparse
@@ -45,8 +46,10 @@ def main():
     # This dedicated profile is exclusively owned by this helper.
     for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
         (args.profile / name).unlink(missing_ok=True)
+
     def stop(signum, frame):
         raise KeyboardInterrupt()
+
     signal.signal(signal.SIGTERM, stop)
     last = None
     alerts = SlackAlerts(args.profile.parent / "slack-alert-state.json")
@@ -80,9 +83,15 @@ def main():
             monitor.check()
 
     with sync_playwright() as playwright:
-        proxy = {"server": os.getenv("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080")} if os.getenv("TRAKT_VPN_ENABLED", "false").lower() == "true" else None
+        proxy = (
+            {"server": os.getenv("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080")}
+            if os.getenv("TRAKT_VPN_ENABLED", "false").lower() == "true"
+            else None
+        )
         context = playwright.chromium.launch_persistent_context(
-            str(args.profile), proxy=proxy, headless=os.getenv("TRAKT_BROWSER_HEADLESS", "false").lower() == "true",
+            str(args.profile),
+            proxy=proxy,
+            headless=os.getenv("TRAKT_BROWSER_HEADLESS", "false").lower() == "true",
         )
         context.on("response", capture)
         page = context.pages[0] if context.pages else context.new_page()

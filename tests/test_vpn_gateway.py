@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import importlib.util
 from pathlib import Path
 from unittest.mock import Mock
@@ -31,8 +33,9 @@ def lab():
     backend = Backend()
     now = [1000]
     healthy = {False: True, True: True}
-    controller = gateway.Controller(backend, check=lambda vpn: healthy[vpn], clock=lambda: now[0],
-                                   threshold=3, cooldown=10, recovery_interval=30, health_interval=2)
+    controller = gateway.Controller(
+        backend, check=lambda vpn: healthy[vpn], clock=lambda: now[0], threshold=3, cooldown=10, recovery_interval=30, health_interval=2
+    )
     return controller, backend, now, healthy
 
 
@@ -139,7 +142,10 @@ def test_profile_hooks_rejected_without_execution(tmp_path, monkeypatch):
 
 
 def test_profile_never_rewrites_dns_and_has_private_permissions(tmp_path, monkeypatch):
-    (tmp_path / "a.conf").write_text("[Interface]\nPrivateKey = secret\nAddress = 10.1.1.2/32\nDNS = 10.1.1.1\n[Peer]\nPublicKey = public\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example:51820\n")
+    (tmp_path / "a.conf").write_text(
+        "[Interface]\nPrivateKey = secret\nAddress = 10.1.1.2/32\nDNS = 10.1.1.1\n"
+        "[Peer]\nPublicKey = public\nAllowedIPs = 0.0.0.0/0\nEndpoint = vpn.example:51820\n"
+    )
     backend = gateway.WireGuard(tmp_path)
     backend.path = tmp_path / "generated" / "ptsvpn.conf"
     monkeypatch.setattr(gateway, "command", Mock())
@@ -165,13 +171,13 @@ def test_route_changes_close_existing_trakt_tunnels(lab):
 
 
 def test_crash_guard_is_kept_when_interface_stops(tmp_path, monkeypatch):
-    (tmp_path / 'a.conf').write_text('[Interface]\nPrivateKey = secret\n[Peer]\nAllowedIPs = 0.0.0.0/0\n')
+    (tmp_path / "a.conf").write_text("[Interface]\nPrivateKey = secret\n[Peer]\nAllowedIPs = 0.0.0.0/0\n")
     backend = gateway.WireGuard(tmp_path)
-    backend.path = tmp_path / 'generated.conf'
+    backend.path = tmp_path / "generated.conf"
     commands = []
-    monkeypatch.setattr(gateway, 'command', lambda args, required=True: commands.append(args))
+    monkeypatch.setattr(gateway, "command", lambda args, required=True: commands.append(args))
     backend.start(0)
-    assert any('prohibit' in args for args in commands)
+    assert any("prohibit" in args for args in commands)
     commands.clear()
     backend.stop()
-    assert not any('rule' in args or 'flush' in args for args in commands)
+    assert not any("rule" in args or "flush" in args for args in commands)
