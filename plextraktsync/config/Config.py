@@ -23,6 +23,12 @@ class Config(ChangeNotifier, ConfigMergeMixin, dict):
         "PLEX_USERNAME": True,
         "TRAKT_USERNAME": True,
         "TRAKT_BROWSER_TOKEN_FILE": True,
+        "TRAKT_PKCE_CLIENT_ID": True,
+        "TRAKT_PKCE_REDIRECT_URI": True,
+        "TRAKT_PKCE_ALLOW_LOCAL_HTTP": True,
+        "TRAKT_VPN_ENABLED": True,
+        "TRAKT_VPN_PROXY_URL": True,
+        "TRAKT_VPN_CONTROL_URL": True,
         "PLEX_SERVER": True,  # new in 0.24.0
         # The token of the PMS administrator/owner.
         # This is stored/used only for managed users (home users) so the script
@@ -154,17 +160,20 @@ class Config(ChangeNotifier, ConfigMergeMixin, dict):
         self["cache"]["path"] = self["cache"]["path"].replace("$PTS_CACHE_DIR", cache_dir)
 
     def serialize(self):
-        """
-        Print config serialized as yaml.
-        If print is None, return the produced string instead.
-        """
+        if not self.initialized:
+            self.initialize()
         data = dict(self)
         # Remove env variables. They are usually secrets
         for key in self.env_keys:
             del data[key]
+
         return data
 
     def dump(self, print=None):
+        """
+        Print config serialized as yaml.
+        If print is None, return the produced string instead.
+        """
         data = self.serialize()
         dump = ConfigLoader.dump_yaml(None, data)
         if print is None:

@@ -253,7 +253,10 @@ def sync():
 
 
 @command()
-def trakt_login():
+@click.option("--method", type=click.Choice(["browser", "pkce"]), help="Select saved browser/session credentials or connect with PKCE.")
+@click.option("--redirect-uri", help="Callback registered for the Trakt PKCE app.")
+@click.option("--allow-local-http", is_flag=True, help="Allow a local HTTP callback for LAN testing.")
+def trakt_login(method=None, redirect_uri=None, allow_local_http=False):
     """
     Log in to Trakt Account to obtain Access Token.
     """
@@ -274,6 +277,12 @@ def trakt_login():
     default=False,
     is_flag=True,
     help="Show only local files (no match in Plex)",
+)
+@click.option(
+    "--library",
+    type=str,
+    multiple=True,
+    help="Specify Library to use (can be given multiple times)",
 )
 def unmatched():
     """

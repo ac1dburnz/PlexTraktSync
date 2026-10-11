@@ -1,0 +1,5 @@
+ARG BASE_IMAGE=plextraktsync:pkce-local
+FROM ${BASE_IMAGE}
+RUN pip install --no-cache-dir pytest
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["cp -a /tests-src /app/tests && python -m pytest -q /app/tests"]

@@ -93,7 +93,7 @@ default remains `watch`. See [VALIDATION.md](VALIDATION.md) for actual test resu
 
 ## Ready-to-edit TrueNAS template
 
-Use [deploy/truenas.yml](../deploy/truenas.yml). It uses the AppyHoe dataset
+Use [deploy/truenas.yml](../deploy/truenas.yml). It uses example dataset paths
 layout and one container. Set `PLEX_BASEURL`, `PLEX_TOKEN`, and optionally
 `SLACK_WEBHOOK_URL` privately in your deployment environment. If the TrueNAS YAML
 editor does not interpolate variables, replace those placeholders in the editor,
@@ -114,3 +114,12 @@ before deploying the template.
 ## Radarr / Sonarr saved feeds
 
 The optional built-in [Trakt list bridge](LIST-BRIDGE.md) exposes movie and TV feeds using the same browser login. It includes a feed-builder page on port 8090, previews, persisted source settings, and importer URLs. See the [TrueNAS template](../deploy/truenas-lists.yml).
+
+## Optional Trakt app PKCE login
+
+[PKCE setup and local testing](PKCE.md) adds a second authentication method for
+PlexTraktSync and the port 8090 feed builder while preserving browser/session login.
+
+Optional app-scoped WireGuard transport and local Docker setup are documented in
+[../vpn-helper/README.md](../vpn-helper/README.md). VPN routing is independent of
+the browser/session and PKCE authentication methods and disabled by default.

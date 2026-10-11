@@ -1,0 +1,13 @@
+# Optional overlay for the isolated PKCE/session lab.
+services:
+  pkce:
+    image: plextraktsync:pkce-vpn-local
+    environment:
+      TRAKT_VPN_ENABLED: "true"
+      TRAKT_VPN_PROXY_URL: http://trakt-vpn:8080
+      TRAKT_VPN_CONTROL_URL: http://trakt-vpn:9090
+    networks: [default, vpn]
+networks:
+  vpn:
+    external: true
+    name: plextraktsync-vpn-lab_default

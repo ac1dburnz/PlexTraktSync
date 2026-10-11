@@ -8,7 +8,7 @@ from rich.prompt import Prompt
 from trakt.errors import ForbiddenException
 
 from plextraktsync.factory import factory
-from plextraktsync.path import pytrakt_file
+from plextraktsync.path import config_dir, pytrakt_file
 from plextraktsync.style import error, prompt, success, title
 
 if TYPE_CHECKING:
@@ -45,11 +45,13 @@ def trakt_authenticate(api: TraktApi):
 
 
 def has_trakt_token():
-    token_file = factory.config["TRAKT_BROWSER_TOKEN_FILE"]
-    if token_file:
-        from plextraktsync.trakt.BrowserTokenAuth import BrowserTokenAuth
+    from pathlib import Path
 
-        BrowserTokenAuth(token_file).read()
+    token_file = factory.config["TRAKT_BROWSER_TOKEN_FILE"]
+    if token_file or (Path(config_dir) / "trakt-auth.json").exists():
+        from plextraktsync.trakt.PkceAuth import TraktAuth
+
+        TraktAuth(token_file or Path(config_dir) / "browser-token.json", config_dir).read()
         return factory.config["TRAKT_USERNAME"] is not None
 
     if not exists(pytrakt_file):
@@ -63,17 +65,43 @@ def trakt_login_autoconfig():
     login()
 
 
-def trakt_login():
+def trakt_login(method=None, redirect_uri=None, allow_local_http=False):
     """
     Log in to Trakt Account to obtain Access Token.
     """
+    if method:
+        from pathlib import Path
+        from urllib.parse import parse_qs, urlsplit
+
+        from plextraktsync.trakt.PkceAuth import TraktAuth
+
+        auth = TraktAuth(factory.config["TRAKT_BROWSER_TOKEN_FILE"] or Path(config_dir) / "browser-token.json", config_dir)
+        if method == "pkce":
+            if not redirect_uri:
+                from click import ClickException
+
+                raise ClickException("Provide --redirect-uri with the callback registered for your Trakt app.")
+            factory.print(auth.start(redirect_uri, allow_local_http=allow_local_http))
+            callback = Prompt.ask("Open that URL, approve your Trakt app, then paste the complete callback URL")
+            actual, expected = urlsplit(callback), urlsplit(redirect_uri)
+            if (actual.scheme, actual.netloc, actual.path) != (expected.scheme, expected.netloc, expected.path):
+                from click import ClickException
+
+                raise ClickException("Callback URL does not match the registered redirect.")
+            params = parse_qs(actual.query)
+            auth.finish(params.get("code", [""])[0], params.get("state", [""])[0])
+        else:
+            auth.select(method)
+        login()
+        factory.print("Trakt authentication method saved. Future commands use this method.")
+        return
     login()
 
 
 def login():
     print = factory.print
     api = factory.trakt_api
-    if not api.browser_token_file:
+    if not api.external_auth:
         trakt_authenticate(api)
     user = api.me.username
 
@@ -81,7 +109,7 @@ def login():
     CONFIG["TRAKT_USERNAME"] = user
     CONFIG.save()
 
-    if api.browser_token_file:
-        print(success("Trakt browser token verified; username saved. Credentials remain in the external token file."))
+    if api.external_auth:
+        print(success("Trakt credentials verified; username saved. Credentials remain in the external token file."))
     else:
         print(TRAKT_LOGIN_SUCCESS)

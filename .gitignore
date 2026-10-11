@@ -27,3 +27,14 @@ trakt-browser-token.json
 
 # Local list-bridge test environment
 .list-venv/
+
+# Private credentials for isolated local PKCE testing
+.env.pkce-local
+
+# Local authentication, provider profiles, and private environment files
+.env.*
+!.env.example
+*.conf
+trakt-auth.json
+trakt-pkce*.json
+browser-token.json

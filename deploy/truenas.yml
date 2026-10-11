@@ -21,6 +21,6 @@ services:
       # No UI password: keep localhost binding and access through SSH.
       - "127.0.0.1:6080:6080"
     volumes:
-      - /mnt/AppyHoe/apps/plextraktsync/config:/app/config
-      - /mnt/AppyHoe/apps/plextraktsync/browser:/browser
+      - /mnt/YOUR_POOL/apps/plextraktsync/config:/app/config
+      - /mnt/YOUR_POOL/apps/plextraktsync/browser:/browser
     command: ["watch"]

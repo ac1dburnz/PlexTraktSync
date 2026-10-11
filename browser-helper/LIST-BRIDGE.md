@@ -20,7 +20,7 @@ Generate a secret with `openssl rand -hex 32`. Put it in your private Compose co
 
 See [`../deploy/truenas-lists.yml`](../deploy/truenas-lists.yml) for a complete example using your existing network and config volume. This feature must be built/published before an existing `all-in-one` tag contains it.
 
-Open **http://192.168.2.98:8090/** (or your container/host address). Enter the bridge secret, then:
+Open **http://192.168.1.100:8090/** (or your container/host address). Enter the bridge secret, then:
 
 1. Choose Movies or TV and a Trakt source.
 2. Enter a feed name, period/user/list/seed options as applicable, result limit and optional filters.
@@ -31,8 +31,8 @@ Open **http://192.168.2.98:8090/** (or your container/host address). Enter the b
 Example URL shapes (the UI generates the actual URLs):
 
 ```text
-http://192.168.2.98:8090/radarr/weekly-movies.json?key=YOUR_BRIDGE_SECRET
-http://192.168.2.98:8090/sonarr/weekly-shows.json?key=YOUR_BRIDGE_SECRET
+http://192.168.1.100:8090/radarr/weekly-movies.json?key=YOUR_BRIDGE_SECRET
+http://192.168.1.100:8090/sonarr/weekly-shows.json?key=YOUR_BRIDGE_SECRET
 ```
 
 Feed definitions persist in `/app/config/list-feeds.json`. Selecting a saved feed loads its settings; saving with the same name replaces the definition without changing its URL. Changing its media type changes which importer route is valid. Changing the bridge secret requires updating importer URLs. The key is held in page memory, not browser local storage.
