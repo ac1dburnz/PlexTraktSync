@@ -17,6 +17,7 @@ from requests.structures import CaseInsensitiveDict
 from token_monitor import TokenMonitor, validate
 
 from plextraktsync.trakt.RateLimiter import HOSTS, RateLimiter
+from plextraktsync.trakt.TraktTransport import TraktAdapter
 
 
 def save_token(path, token, client_id):
@@ -64,6 +65,12 @@ def main():
 
     limiter = RateLimiter()
 
+    vpn_reporter = (
+        TraktAdapter(os.getenv("TRAKT_VPN_PROXY_URL", "http://trakt-vpn:8080"),
+                     os.getenv("TRAKT_VPN_CONTROL_URL", "http://trakt-vpn:9090"), limiter=limiter)
+        if os.getenv("TRAKT_VPN_ENABLED", "false").lower() == "true" else None
+    )
+
     def pace(route):
         request = route.request
         if urlsplit(request.url).hostname in HOSTS:
@@ -77,6 +84,8 @@ def main():
                 headers = CaseInsensitiveDict(response.all_headers())
             limiter.observe(Result(), response.request.method, response.url,
                             bool(response.request.all_headers().get("authorization")))
+            if response.status == 429 and vpn_reporter:
+                vpn_reporter.report("rate-limit", retry_after=limiter.remaining())
         if response.status != 200:
             return
         request = response.request

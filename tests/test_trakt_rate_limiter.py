@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from plextraktsync.trakt.RateLimiter import RateLimiter
-from plextraktsync.trakt.TraktTransport import PacedAdapter
+from plextraktsync.trakt.TraktTransport import PacedAdapter, TraktAdapter
 
 
 @pytest.fixture
@@ -116,3 +116,20 @@ def test_invalid_retry_header_uses_backoff(lab, value):
     limiter.observe(response(**{"Retry-After": value}), "GET", "https://api.trakt.tv/test")
     limiter.acquire("GET")
     assert 2 <= sleeps[-1] <= 3
+
+
+def test_vpn_denial_reporting_preserves_shared_retry_pause(lab, monkeypatch):
+    limiter, now, sleeps = lab
+    report = Mock()
+    adapter = TraktAdapter("http://gateway:8080", "http://gateway:9090", report=report, limiter=limiter)
+    denied = response(**{"Retry-After": "596"})
+    accepted = response(status=200)
+    send = Mock(side_effect=[denied, accepted])
+    monkeypatch.setattr("requests.adapters.HTTPAdapter.send", send)
+    request = requests.Request("POST", "https://api.trakt.tv/scrobble/start").prepare()
+    assert adapter.send(request) is denied
+    report.assert_called_once_with("rate-limit", retry_after=596)
+    assert send.call_count == 1 and limiter.remaining() == 596
+    assert adapter.send(request) is accepted
+    assert sleeps == [596] and send.call_count == 2
+    assert limiter.remaining() == 0

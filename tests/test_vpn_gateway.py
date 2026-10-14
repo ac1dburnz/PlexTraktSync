@@ -60,7 +60,7 @@ def test_threshold_rotation_and_cooldown(lab):
 
 def test_auth_and_rate_denials_never_rotate(lab):
     c, backend, _, _ = lab
-    for reason in ("401", "403", "420", "429", "denied", "rate-limit") * 10:
+    for reason in ("401", "403", "420", "429", "denied") * 10:
         c.report(reason)
     assert c.route == "direct" and backend.starts == []
 
@@ -200,3 +200,64 @@ def test_startup_tolerates_transient_handshake_failure(lab, monkeypatch):
     assert controller.activate()
     assert controller.status()["route"] == "vpn"
     assert backend.starts == [0]
+
+
+def test_rate_denials_take_over_after_full_pause(lab):
+    c, backend, now, _ = lab
+    for _ in range(3):
+        c.report("rate-limit", retry_after=596)
+        c.success()  # Unrelated healthy reads must not erase write denials.
+    c.tick()
+    assert c.rate_failures == 3 and backend.starts == []
+    now[0] += 595
+    c.tick()
+    assert backend.starts == []
+    now[0] += 1
+    assert c.vpn_for("api.trakt.tv")  # First retry must use the new route.
+    assert backend.starts == [0] and c.rate_failures == 0
+
+
+def test_rate_denials_rotate_and_respect_switch_cooldown(lab):
+    c, backend, now, _ = lab
+    c.activate()
+    for _ in range(3):
+        c.report("rate-limit", retry_after=2)
+    now[0] += 2
+    c.tick()
+    assert backend.starts == [0]
+    now[0] += 8
+    c.tick()
+    assert backend.starts == [0, 1]
+
+
+def test_rate_limit_failover_can_be_disabled(lab):
+    c, backend, now, _ = lab
+    c.rate_limit_failover = False
+    for _ in range(5):
+        c.report("rate-limit", retry_after=596)
+    now[0] += 600
+    c.tick()
+    assert backend.starts == [] and c.rate_failures == 0
+
+
+def test_no_health_or_recovery_probe_during_rate_pause(lab):
+    c, _, now, _ = lab
+    c.activate()
+    c.check = Mock(return_value=True)
+    c.report("rate-limit", retry_after=596)
+    now[0] += 30
+    c.tick()
+    c.check.assert_not_called()
+    assert c.route == "vpn"
+
+
+@pytest.mark.parametrize("status", [403, 412, 420, 429])
+def test_denied_direct_probe_does_not_claim_recovery(monkeypatch, status):
+    stream = MagicMock()
+    stream.recv.return_value = f"HTTP/1.1 {status} Denied\r\n".encode()
+    context = MagicMock()
+    context.wrap_socket.return_value.__enter__.return_value = stream
+    monkeypatch.setattr(gateway, "connect", Mock())
+    monkeypatch.setattr(gateway.ssl, "create_default_context", lambda: context)
+    assert not gateway.probe(False)
+    assert gateway.probe(True)

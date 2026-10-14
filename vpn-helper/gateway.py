@@ -5,6 +5,7 @@ from __future__ import annotations
 import configparser
 import ipaddress
 import json
+import math
 import os
 import select
 import signal
@@ -56,7 +57,7 @@ def probe(vpn=False):
             stream.sendall(b"HEAD / HTTP/1.1\r\nHost: api.trakt.tv\r\nConnection: close\r\n\r\n")
             line = stream.recv(512).split(b"\r\n", 1)[0]
             status = int(line.split()[1])
-            return status < 500  # An HTTP rate limit is not a failed tunnel.
+            return status < 500 and (vpn or status not in (401, 403, 412, 420, 429))
     except (OSError, ValueError, IndexError):
         return False
 
@@ -113,7 +114,10 @@ class WireGuard:
 
 
 class Controller:
-    def __init__(self, backend, check=probe, clock=time.monotonic, threshold=3, cooldown=120, recovery_interval=900, health_interval=30, mode="auto"):
+    def __init__(
+        self, backend, check=probe, clock=time.monotonic, threshold=3, cooldown=120,
+        recovery_interval=900, health_interval=30, mode="auto", rate_limit_failover=True,
+    ):
         if mode not in ("auto", "always") or threshold < 1 or cooldown < 1 or recovery_interval < 30 or health_interval < 1:
             raise ValueError("Invalid VPN configuration.")
         self.backend, self.check, self.clock = backend, check, clock
@@ -122,6 +126,8 @@ class Controller:
         self.mode, self.route = mode, "direct" if mode == "auto" else "unavailable"
         self.index, self.failures, self.health_failures = -1, 0, 0
         self.last_change, self.last_recovery, self.last_health = -cooldown, clock(), clock()
+        self.rate_limit_failover = rate_limit_failover
+        self.rate_failures, self.retry_at = 0, 0
         self.error = None
         self.lock = threading.RLock()
         self.generation = 0
@@ -143,6 +149,9 @@ class Controller:
                 "profile": self.index + 1 if self.index >= 0 else None,
                 "profiles": len(self.backend.profiles),
                 "failures": self.failures,
+                "rate_limit_failover": self.rate_limit_failover,
+                "rate_failures": self.rate_failures,
+                "retry_after": max(0, self.retry_at - self.clock()),
                 "error": self.error,
             }
 
@@ -172,6 +181,7 @@ class Controller:
                     raise RuntimeError("VPN health check failed.")
                 self.route, self.error = "vpn", None
                 self.failures, self.health_failures = 0, 0
+                self.rate_failures = 0
                 print("VPN transport healthy; profile " + str(self.index + 1), flush=True)
                 return True
             except Exception:
@@ -184,13 +194,19 @@ class Controller:
                 print(self.error, flush=True)
                 return False
 
-    def report(self, reason):
-        # A VPN cannot fix account limits, rate limits, revoked tokens or permissions.
-        if reason not in ("connection", "timeout", "gateway"):
+    def report(self, reason, retry_after=0):
+        if reason not in ("connection", "timeout", "gateway", "rate-limit"):
             return
         with self.lock:
+            if reason == "rate-limit":
+                if not self.rate_limit_failover:
+                    return
+                self.rate_failures += 1
+                self.retry_at = max(self.retry_at, self.clock() + retry_after)
+                # Defer tunnel startup, probes and retries until the shared pause ends.
+                return
             self.failures += 1
-            if self.failures >= self.threshold and self.clock() - self.last_change >= self.cooldown:
+            if self.failures >= self.threshold and self.clock() >= self.retry_at and self.clock() - self.last_change >= self.cooldown:
                 self.activate()
 
     def success(self):
@@ -204,11 +220,17 @@ class Controller:
             self.backend.stop()
             self.route = "direct"
             self.failures, self.health_failures = 0, 0
+            self.rate_failures = 0
             self.last_change = self.clock()
 
     def tick(self):
         with self.lock:
             now = self.clock()
+            if now < self.retry_at:
+                return
+            if self.rate_failures >= self.threshold and now - self.last_change >= self.cooldown:
+                self.activate()
+                return
             if self.route == "direct":
                 if self.mode == "always" and now - self.last_change >= self.cooldown:
                     self.activate()
@@ -236,6 +258,8 @@ class Controller:
         if host != "trakt.tv" and not host.endswith(".trakt.tv"):
             return False
         with self.lock:
+            if self.rate_failures >= self.threshold:
+                self.tick()
             if self.route == "unavailable":
                 raise OSError("VPN transport unavailable; no direct fallback.")
             return self.route == "vpn"
@@ -331,10 +355,13 @@ class Control(BaseHTTPRequestHandler):
                     raise ValueError()
                 data = json.loads(self.rfile.read(length))
                 reason = data["reason"]
+                retry_after = float(data.get("retry_after", 0))
+                if not math.isfinite(retry_after) or retry_after < 0:
+                    raise ValueError()
                 if reason == "success":
                     controller.success()
                 else:
-                    controller.report(reason)
+                    controller.report(reason, retry_after)
                 self.reply(controller.status())
             except (ValueError, KeyError, TypeError):
                 self.reply({"error": "Invalid report"}, 400)
@@ -357,6 +384,7 @@ def main():
         recovery_interval=int(os.getenv("VPN_RECOVERY_INTERVAL", "900")),
         health_interval=int(os.getenv("VPN_HEALTH_INTERVAL", "30")),
         mode=os.getenv("VPN_MODE", "auto"),
+        rate_limit_failover=os.getenv("VPN_RATE_LIMIT_FAILOVER", "true").lower() == "true",
     )
     servers = [LocalHTTPServer(("0.0.0.0", 8080), Proxy), LocalHTTPServer(("0.0.0.0", 9090), Control)]
     for server in servers:

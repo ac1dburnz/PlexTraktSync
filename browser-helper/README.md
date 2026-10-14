@@ -139,7 +139,8 @@ and preserve a previously validated login. Existing cached results need no reque
 Other applications using the same Trakt account still share Trakt's server-side
 allowance, so these controls cannot guarantee that the account never receives 429.
 
-VPN failover handles transport failures, not rate limits. It does not reset an
+VPN failover can also switch routes after repeated 429 responses once the shared
+retry timer expires (`VPN_RATE_LIMIT_FAILOVER=true`). It does not reset an
 account's allowance. A healthy auto-mode gateway normally reports `route: direct`;
-`route: vpn` appears after repeated connection failures. The gateway keeps its
+`route: vpn` appears after repeated transport failures or rate-limit responses. The gateway keeps its
 proxy/control listeners bound to Docker's interface, with no host ports published.

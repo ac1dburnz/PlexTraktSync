@@ -14,6 +14,7 @@ services:
     restart: unless-stopped
     environment:
       VPN_MODE: auto
+      VPN_RATE_LIMIT_FAILOVER: "true"
       VPN_FAILURE_THRESHOLD: "3"
       VPN_SWITCH_COOLDOWN: "120"
       VPN_RECOVERY_INTERVAL: "900"

@@ -35,10 +35,10 @@ class TraktAdapter(PacedAdapter):
         self.proxy_url, self.control_url = proxy_url.rstrip("/"), control_url.rstrip("/")
         self.report = report or self._report
 
-    def _report(self, reason):
+    def _report(self, reason, retry_after=0):
         # Do not include paths, tokens, bodies or headers in transport reports.
         with suppress(requests.RequestException):
-            requests.post(self.control_url + "/report", json={"reason": reason}, timeout=1, allow_redirects=False)
+            requests.post(self.control_url + "/report", json={"reason": reason, "retry_after": retry_after}, timeout=1, allow_redirects=False)
 
     def send(self, request, **kwargs):
         kwargs["proxies"] = {"https": self.proxy_url}
@@ -50,11 +50,13 @@ class TraktAdapter(PacedAdapter):
         except requests.ConnectionError:
             self.report("connection")
             raise
-        if response.status_code in (502, 503, 504):
+        if response.status_code == 429:
+            self.report("rate-limit", retry_after=self.limiter.remaining())
+        elif response.status_code in (502, 503, 504):
             self.report("gateway")
         elif response.status_code < 400:
             self.report("success")
-        # 401/403/420/429 do not change transport. Existing retry/backoff applies.
+        # 401/403/420 remain authentication or permission failures.
         return response
 
 

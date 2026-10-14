@@ -30,12 +30,15 @@ def test_only_trakt_endpoints_use_proxy():
 
 
 @pytest.mark.parametrize(
-    "code,reason", [(200, "success"), (401, None), (403, None), (420, None), (429, None), (502, "gateway"), (503, "gateway"), (504, "gateway")]
+    "code,reason",
+    [(200, "success"), (401, None), (403, None), (420, None), (429, "rate-limit"), (502, "gateway"), (503, "gateway"), (504, "gateway")],
 )
 @pytest.mark.parametrize("token", ["browser-session", "pkce-access"])
 def test_auth_independent_reporting_without_request_replay(monkeypatch, code, reason, token):
     report = Mock()
-    adapter = TraktAdapter("http://gateway:8080", "http://gateway:9090", report=report)
+    limiter = Mock()
+    limiter.remaining.return_value = 596
+    adapter = TraktAdapter("http://gateway:8080", "http://gateway:9090", report=report, limiter=limiter)
     request = requests.Request(
         "POST", "https://api.trakt.tv/sync/history", headers={"Authorization": "Bearer " + token}, json={"movies": []}
     ).prepare()
@@ -47,7 +50,10 @@ def test_auth_independent_reporting_without_request_replay(monkeypatch, code, re
     assert send.call_count == 1
     assert request.headers["Authorization"] == "Bearer " + token
     assert send.call_args.kwargs["proxies"] == {"https": "http://gateway:8080"}
-    if reason:
+    if reason == "rate-limit":
+        report.assert_called_once_with(reason, retry_after=596)
+        limiter.observe.assert_called_once()
+    elif reason:
         report.assert_called_once_with(reason)
     else:
         report.assert_not_called()
