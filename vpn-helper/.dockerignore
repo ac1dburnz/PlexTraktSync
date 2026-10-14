@@ -1,0 +1,4 @@
+# Only runtime source belongs in the image build context.
+**
+!Dockerfile
+!gateway.py

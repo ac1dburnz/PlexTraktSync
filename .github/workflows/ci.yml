@@ -52,8 +52,18 @@ jobs:
       version: ${{ needs.version.outputs.version }}
       publish: ${{ github.event_name != 'pull_request' }}
     secrets: inherit
+  gateway:
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/gateway-image.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      publish: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit
   release:
-    needs: [version, docker, browser]
+    needs: [version, docker, browser, gateway]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -74,7 +84,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Promote both images and publish release
+      - name: Promote all images and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
@@ -82,7 +92,7 @@ jobs:
           PUBLISH_DOCKERHUB: ${{ vars.PUBLISH_DOCKERHUB }}
         run: bash scripts/publish_release.sh
   automerge:
-    needs: [docker, browser, test, lint]
+    needs: [docker, browser, gateway, test, lint]
     if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
     permissions:
       contents: write

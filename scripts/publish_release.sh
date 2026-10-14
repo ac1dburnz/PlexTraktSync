@@ -14,8 +14,11 @@ while IFS= read -r tag; do
   fi
 done <<< "$published_tags"
 if [[ "$newer" == false ]]; then
+  # Check the gateway exists before advancing any moving tags.
+  docker buildx imagetools inspect "$image:wireguard-gateway-$VERSION" >/dev/null
   docker buildx imagetools create --tag "$image:latest" --tag "$image:main" "$image:$VERSION"
   docker buildx imagetools create --tag "$image:all-in-one" "$image:all-in-one-$VERSION"
+  docker buildx imagetools create --tag "$image:wireguard-gateway" "$image:wireguard-gateway-$VERSION"
   if [[ "${PUBLISH_DOCKERHUB:-false}" == true ]]; then
     docker buildx imagetools create --tag ac1dburn/plextraktsync:latest --tag ac1dburn/plextraktsync:main "ac1dburn/plextraktsync:$VERSION"
   fi
