@@ -104,7 +104,10 @@ class RateLimiter:
             parts[2] = "<user>"
         return "/".join(parts)
 
-    def blocked(self):
+    def remaining(self):
         with self.connect() as db:
             row = db.execute("SELECT until FROM cooldown WHERE id=1").fetchone()
-        return bool(row and row[0] > self.clock())
+        return max(0, row[0] - self.clock()) if row else 0
+
+    def blocked(self):
+        return self.remaining() > 0
