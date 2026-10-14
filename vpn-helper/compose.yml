@@ -1,9 +1,8 @@
 name: plextraktsync-vpn-lab
 services:
   trakt-vpn:
-    build:
-      context: .
-    image: plextraktsync:wireguard-gateway
+    image: ghcr.io/ac1dburnz/plextraktsync:wireguard-gateway
+    pull_policy: always
     cap_add: [NET_ADMIN]
     restart: unless-stopped
     environment:

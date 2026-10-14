@@ -1,4 +1,4 @@
-# Merge with truenas-lists.yml; build and load the gateway image first.
+# Merge with truenas-lists.yml; the gateway image is published by the main release.
 services:
   plextraktsync:
     environment:
@@ -9,7 +9,8 @@ services:
       trakt_vpn: {}
     depends_on: [trakt-vpn]
   trakt-vpn:
-    image: plextraktsync:wireguard-gateway
+    image: ghcr.io/ac1dburnz/plextraktsync:wireguard-gateway
+    pull_policy: always
     cap_add: [NET_ADMIN]
     restart: unless-stopped
     environment:

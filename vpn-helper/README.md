@@ -36,7 +36,7 @@ From the repository root, with Docker running:
 
 ```sh
 export WIREGUARD_CONFIG_PATH=/path/to/wireguard/provider.conf
-docker compose -f vpn-helper/compose.yml up -d --build
+docker compose -f vpn-helper/compose.yml up -d
 docker build -f Dockerfile.all-in-one -t plextraktsync:pkce-vpn-local .
 docker compose --env-file .env.pkce-local \
   -f browser-helper/compose.pkce-local.yml \
@@ -68,10 +68,27 @@ repository and images. Each profile must contain one `[Interface]`, one `[Peer]`
 and IPv4 `AllowedIPs = 0.0.0.0/0`. Executable `wg-quick` hooks are rejected.
 Generated container configs are mode 0600 and removed when the tunnel stops.
 
-Build/load `plextraktsync:wireguard-gateway` on your server. The optional
-`deploy/truenas-vpn.yml` overlay adds the gateway to `deploy/truenas-lists.yml`.
-Set `WIREGUARD_CONFIG_DIR` to the server directory of profiles. The app image
-must include these changes; they are not yet published to GHCR.
+The release workflow builds and tests the gateway for Linux amd64 and arm64.
+After all three images pass, it publishes the moving gateway tag alongside the
+core and all-in-one tags:
+
+- `ghcr.io/ac1dburnz/plextraktsync:wireguard-gateway`
+- `ghcr.io/ac1dburnz/plextraktsync:wireguard-gateway-VERSION` for a pinned release
+
+The optional `deploy/truenas-vpn.yml` overlay adds the published gateway to
+`deploy/truenas-lists.yml`. Set `WIREGUARD_CONFIG_DIR` to the server directory of
+profiles. Existing installations using `plextraktsync:wireguard-gateway` should
+replace that image with the GHCR tag and remove `build:` and `pull_policy: never`.
+Both published deployment examples pull the gateway image when recreated.
+Keep WireGuard profiles mounted from the host; they are never included in images.
+PR builds validate both architectures without publishing or advancing release tags.
+
+To build a local development image instead:
+
+```sh
+docker build -t plextraktsync:wireguard-gateway vpn-helper
+```
+
 The WireGuard Linux kernel module and Docker `NET_ADMIN` capability are required.
 No host networking, Docker socket, or privileged container is required.
 
