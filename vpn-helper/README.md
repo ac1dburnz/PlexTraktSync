@@ -16,7 +16,15 @@ and existing Trakt proxy connections are closed when routes change. Every
 15 minutes a separate direct connectivity check can return the app to direct.
 `always` mode requires a healthy VPN and never automatically returns to direct.
 
-HTTP 401/403/420/429 do **not** trigger rotation. Changing IP cannot resolve bad
+With `VPN_RATE_LIMIT_FAILOVER=true` (the default when VPN support is enabled),
+three HTTP 429 responses schedule VPN takeover or profile rotation. Successful
+reads do not erase this separate denial count. The gateway waits for the full
+shared `Retry-After` or backoff period before switching or probing, and the app
+keeps its shared rate limiter across route changes. No request is replayed by
+the adapter. Set this option to `false` to keep transport-only failover.
+
+Direct recovery probes returning 401/403/412/420/429 do not turn the VPN off.
+HTTP 401/403/420 do **not** trigger rotation. Changing IP cannot resolve bad
 credentials, app/account restrictions, or authenticated per-user API quotas.
 Existing rate-limit retry/backoff behavior applies. The connectivity probe checks
 TLS and network reachability, not whether the selected account is authenticated.
@@ -72,6 +80,7 @@ No host networking, Docker socket, or privileged container is required.
 | `TRAKT_VPN_ENABLED` | `false` | App transport opt-in |
 | `TRAKT_VPN_PROXY_URL` | `http://trakt-vpn:8080` | Internal HTTPS CONNECT proxy |
 | `TRAKT_VPN_CONTROL_URL` | `http://trakt-vpn:9090` | Internal status/report API |
+| `VPN_RATE_LIMIT_FAILOVER` | `true` | Take over after repeated 429 responses, after the shared pause |
 | `VPN_MODE` | `auto` | `auto` or `always` |
 | `VPN_FAILURE_THRESHOLD` | `3` | Consecutive transport/health failures |
 | `VPN_SWITCH_COOLDOWN` | `120` | Minimum seconds between profile attempts |
